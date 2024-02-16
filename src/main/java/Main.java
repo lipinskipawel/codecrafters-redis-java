@@ -4,13 +4,18 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
+import static java.lang.Integer.parseInt;
 import static java.lang.Runtime.getRuntime;
+import static java.util.Optional.empty;
+import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class Main {
-    private static final ExecutorService POOL = Executors.newFixedThreadPool(getRuntime().availableProcessors());
+    private static final ExecutorService POOL = newFixedThreadPool(getRuntime().availableProcessors());
 
     public static void main(String[] args) {
         final int port = 6379;
@@ -32,11 +37,11 @@ public class Main {
         try {
             final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             final var writer = new PrintWriter(socket.getOutputStream());
-            String command;
-            while ((command = reader.readLine()) != null) {
-                System.out.println("Command: " + command);
-                if (command.equalsIgnoreCase("PING")) {
-                    responsePong(writer);
+            String readLine;
+            while ((readLine = reader.readLine()) != null) {
+                final var commands = parseCommand(readLine, reader);
+                for (var command : commands) {
+                    command.execute(writer);
                 }
             }
         } catch (Exception exception) {
@@ -52,8 +57,78 @@ public class Main {
         }
     }
 
-    private static void responsePong(PrintWriter writer) {
-        writer.print("+PONG\r\n");
-        writer.flush();
+    // https://redis.io/docs/reference/protocol-spec/#resp-protocol-description
+    private static List<Command> parseCommand(String line, BufferedReader reader) {
+        try {
+            final var commands = new ArrayList<Command>();
+            final var numberOfElements = parseInt(line.substring(1));
+            for (var i = 0; i < numberOfElements; i++) {
+                final var command = parseBulkString(reader)
+                        .orElseThrow(() -> new IllegalArgumentException("First element must be present"));
+                if (command.equalsIgnoreCase("PING")) {
+                    // for codecrafers.io purpose PING does not accept any other arguments
+                    commands.add(new Ping());
+                }
+                if (command.equalsIgnoreCase("ECHO")) {
+                    final var argumentToEcho = parseBulkString(reader)
+                            .orElseThrow(() -> new IllegalArgumentException("Echo command must have argument"));
+                    // better impl would avoid this and read second argument by continuing looping
+                    // or by removing the loop and reading commands as objects (recursion would be helpful)
+                    i++;
+                    commands.add(new Echo(argumentToEcho));
+                }
+            }
+            return commands;
+        } catch (Exception e) {
+            System.out.println("Exception during parsing client command");
+            return List.of();
+        }
+    }
+
+    private static Optional<String> parseBulkString(BufferedReader reader) {
+        try {
+            final var dataType = reader.readLine();
+            if (dataType.charAt(0) != '$') {
+                throw new IllegalArgumentException("Expected [$] got [%s]".formatted(dataType.charAt(0)));
+            }
+            final var numberOfBytes = parseInt(dataType.substring(1));
+            final var command = reader.readLine();
+            return Optional.of(command);
+        } catch (IOException ioException) {
+            return empty();
+        }
+    }
+
+    /**
+     * Not sure if this abstraction is a good idea.
+     * Probably this should be rewritten into some sort of 'encoders' package.
+     * Inside encoders, I could have wrapper methods like asSimpleString, asBulkString...
+     */
+    private interface Command {
+        void execute(PrintWriter writer);
+    }
+
+    private static class Ping implements Command {
+
+        @Override
+        public void execute(PrintWriter writer) {
+            writer.print("+PONG\r\n");
+            writer.flush();
+        }
+    }
+
+    private static class Echo implements Command {
+        private final String echoMessage;
+
+        Echo(String echoMessage) {
+            this.echoMessage = echoMessage;
+        }
+
+        @Override
+        public void execute(PrintWriter writer) {
+            writer.print("$" + echoMessage.length() + "\r\n");
+            writer.print(echoMessage + "\r\n");
+            writer.flush();
+        }
     }
 }
