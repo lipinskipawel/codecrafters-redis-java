@@ -16,6 +16,7 @@ import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class Main {
     private static final ExecutorService POOL = newFixedThreadPool(getRuntime().availableProcessors());
+    private static final Database DATABASE = new Database();
 
     public static void main(String[] args) {
         final int port = 6379;
@@ -77,6 +78,20 @@ public class Main {
                     i++;
                     commands.add(new Echo(argumentToEcho));
                 }
+                if (command.equalsIgnoreCase("SET")) {
+                    final var key = parseBulkString(reader).orElseThrow();
+                    final var value = parseBulkString(reader).orElseThrow();
+                    i++;
+                    i++;
+                    DATABASE.set(key, value);
+                    commands.add(new Set());
+                }
+                if (command.equalsIgnoreCase("GET")) {
+                    final var keyToLookUp = parseBulkString(reader).orElseThrow();
+                    final var storedValue = DATABASE.get(keyToLookUp);
+                    i++;
+                    commands.add(new Get(storedValue));
+                }
             }
             return commands;
         } catch (Exception e) {
@@ -128,6 +143,35 @@ public class Main {
         public void execute(PrintWriter writer) {
             writer.print("$" + echoMessage.length() + "\r\n");
             writer.print(echoMessage + "\r\n");
+            writer.flush();
+        }
+    }
+
+    private static class Set implements Command {
+
+        @Override
+        public void execute(PrintWriter writer) {
+            writer.print("+OK\r\n");
+            writer.flush();
+        }
+    }
+
+    private static class Get implements Command {
+        private final String value;
+
+        Get(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public void execute(PrintWriter writer) {
+            if (value != null) {
+                writer.print("$" + value.length() + "\r\n");
+                writer.print(value + "\r\n");
+                writer.flush();
+                return;
+            }
+            writer.print("$-1\r\n");
             writer.flush();
         }
     }
