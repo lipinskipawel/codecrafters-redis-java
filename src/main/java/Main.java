@@ -4,18 +4,17 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import static java.lang.Integer.parseInt;
-import static java.lang.Runtime.getRuntime;
 import static java.util.Optional.empty;
+import static java.util.Optional.of;
+import static java.util.Optional.ofNullable;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class Main {
-    private static final ExecutorService POOL = newFixedThreadPool(getRuntime().availableProcessors());
+    private static final ExecutorService POOL = newFixedThreadPool(8);
     private static final Database DATABASE = new Database();
 
     public static void main(String[] args) {
@@ -38,13 +37,10 @@ public class Main {
         try {
             final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             final var writer = new PrintWriter(socket.getOutputStream());
-            String readLine;
-            while ((readLine = reader.readLine()) != null) {
-                final var commands = parseCommand(readLine, reader);
-                for (var command : commands) {
-                    command.execute(writer);
-                }
+            while (!socket.isClosed()) {
+                parseCommand(reader).ifPresent(it -> it.execute(writer));
             }
+            System.out.println("Socket was closed");
         } catch (Exception exception) {
             System.out.println("Exception thrown, closing socket: " + exception.getMessage());
             try {
@@ -54,63 +50,61 @@ public class Main {
                 System.out.println("Exception by the accept method has been thrown: " + exception.getMessage());
                 throw new RuntimeException(e);
             }
-            throw new RuntimeException(exception);
         }
     }
 
     // https://redis.io/docs/reference/protocol-spec/#resp-protocol-description
-    private static List<Command> parseCommand(String line, BufferedReader reader) {
-        try {
-            final var commands = new ArrayList<Command>();
-            final var numberOfElements = parseInt(line.substring(1));
-            for (var i = 0; i < numberOfElements; i++) {
-                final var command = parseBulkString(reader)
-                        .orElseThrow(() -> new IllegalArgumentException("First element must be present"));
-                if (command.equalsIgnoreCase("PING")) {
-                    // for codecrafers.io purpose PING does not accept any other arguments
-                    commands.add(new Ping());
-                }
-                if (command.equalsIgnoreCase("ECHO")) {
-                    final var argumentToEcho = parseBulkString(reader)
-                            .orElseThrow(() -> new IllegalArgumentException("Echo command must have argument"));
-                    // better impl would avoid this and read second argument by continuing looping
-                    // or by removing the loop and reading commands as objects (recursion would be helpful)
-                    i++;
-                    commands.add(new Echo(argumentToEcho));
-                }
-                if (command.equalsIgnoreCase("SET")) {
-                    final var key = parseBulkString(reader).orElseThrow();
-                    final var value = parseBulkString(reader).orElseThrow();
-                    i++;
-                    i++;
-                    DATABASE.set(key, value);
-                    commands.add(new Set());
-                }
-                if (command.equalsIgnoreCase("GET")) {
-                    final var keyToLookUp = parseBulkString(reader).orElseThrow();
-                    final var storedValue = DATABASE.get(keyToLookUp);
-                    i++;
-                    commands.add(new Get(storedValue));
-                }
+    private static Optional<Command> parseCommand(BufferedReader reader) {
+        final var command = commandType(reader);
+        return switch (command) {
+            case "ping" -> of(new Ping()); // codecrafers.io assumes that PING does not have arguments
+            case "echo" -> {
+                final var argumentToEcho = parseBulkString(reader)
+                        .orElseThrow(() -> new IllegalArgumentException("Echo command must have argument"));
+                yield of(new Echo(argumentToEcho));
             }
-            return commands;
-        } catch (Exception e) {
-            System.out.println("Exception during parsing client command");
-            return List.of();
+            case "set" -> {
+                final var key = parseBulkString(reader).orElseThrow();
+                final var value = parseBulkString(reader).orElseThrow();
+                DATABASE.set(key, value);
+                yield of(new Set());
+            }
+            case "get" -> {
+                final var keyToLookUp = parseBulkString(reader).orElseThrow();
+                final var storedValue = DATABASE.get(keyToLookUp);
+                yield of(new Get(storedValue));
+            }
+            case null -> empty();
+            default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
+        };
+    }
+
+    private static String commandType(BufferedReader reader) {
+        try {
+            final var line = reader.readLine();
+            if (line == null) {
+                return null;
+            }
+            return parseBulkString(reader)
+                    .orElseThrow(() -> new IllegalArgumentException("First element must be present"));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
     }
 
     private static Optional<String> parseBulkString(BufferedReader reader) {
+        String dataType = null;
         try {
-            final var dataType = reader.readLine();
-            if (dataType.charAt(0) != '$') {
-                throw new IllegalArgumentException("Expected [$] got [%s]".formatted(dataType.charAt(0)));
-            }
+            dataType = reader.readLine();
             final var numberOfBytes = parseInt(dataType.substring(1));
             final var command = reader.readLine();
-            return Optional.of(command);
+            return of(command);
         } catch (IOException ioException) {
+            System.out.printf("ioException during reading from socket [%s]%n", ioException.getMessage());
             return empty();
+        } catch (Exception exception) {
+            System.out.printf("exception during parsing bulk string [%s]%n", exception.getMessage());
+            return ofNullable(dataType);
         }
     }
 
