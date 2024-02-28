@@ -68,7 +68,6 @@ public class Main {
                 final var key = parseBulkString(reader).orElseThrow();
                 final var value = parseBulkString(reader).orElseThrow();
                 final var expireMark = parseBulkString(reader);
-                System.out.println(expireMark);
                 // this is rly bad and should be refactored
                 // initial idea can be around creating proper object with all information in it instead of using String
                 // as an artificial command in the switch expression
@@ -85,6 +84,7 @@ public class Main {
                 final var storedValue = DATABASE.get(keyToLookUp);
                 yield of(new Get(storedValue));
             }
+            case "info" -> of(new Info("master"));
             case null -> empty();
             default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
         };
@@ -195,6 +195,21 @@ public class Main {
                     .map(it -> "$" + it.length() + "\r\n" + it + "\r\n")
                     .orElse("$-1\r\n");
             writer.print(bulkStringResponse);
+            writer.flush();
+        }
+    }
+
+    private static class Info implements Command {
+        private final String info;
+
+        Info(String role) {
+            this.info = "role:" + role;
+        }
+
+        @Override
+        public void execute(PrintWriter writer) {
+            writer.print("$" + info.length() + "\r\n");
+            writer.print(info + "\r\n");
             writer.flush();
         }
     }
