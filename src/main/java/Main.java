@@ -19,7 +19,7 @@ public class Main {
     private static final Database DATABASE = new Database();
 
     public static void main(String[] args) {
-        final int port = 6379;
+        final var port = portToStartServer(args);
         try (final var serverSocket = new ServerSocket(port)) {
             serverSocket.setReuseAddress(true);
 
@@ -131,6 +131,13 @@ public class Main {
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
         }
+    }
+
+    private static int portToStartServer(String[] args) {
+        if (args.length == 0) {
+            return 6379;
+        }
+        return parseInt(args[1]);
     }
 
     /**
