@@ -8,9 +8,10 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import static java.lang.Integer.parseInt;
+import static java.time.Duration.ofMillis;
+import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
 import static java.util.Optional.of;
-import static java.util.Optional.ofNullable;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class Main {
@@ -66,7 +67,17 @@ public class Main {
             case "set" -> {
                 final var key = parseBulkString(reader).orElseThrow();
                 final var value = parseBulkString(reader).orElseThrow();
-                DATABASE.set(key, value);
+                final var expireMark = parseBulkString(reader);
+                System.out.println(expireMark);
+                // this is rly bad and should be refactored
+                // initial idea can be around creating proper object with all information in it instead of using String
+                // as an artificial command in the switch expression
+                if (expireMark.isPresent()) {
+                    final var expireTime = parseBulkString(reader).orElseThrow();
+                    DATABASE.set(key, value, ofMillis(parseInt(expireTime)));
+                } else {
+                    DATABASE.set(key, value);
+                }
                 yield of(new Set());
             }
             case "get" -> {
@@ -93,9 +104,11 @@ public class Main {
     }
 
     private static Optional<String> parseBulkString(BufferedReader reader) {
-        String dataType = null;
         try {
-            dataType = reader.readLine();
+            if (!reader.ready()) {
+                return empty();
+            }
+            final var dataType = reader.readLine();
             final var numberOfBytes = parseInt(dataType.substring(1));
             final var command = reader.readLine();
             return of(command);
@@ -104,7 +117,19 @@ public class Main {
             return empty();
         } catch (Exception exception) {
             System.out.printf("exception during parsing bulk string [%s]%n", exception.getMessage());
-            return ofNullable(dataType);
+            return empty();
+        }
+    }
+
+    private static int parseInteger(BufferedReader reader) {
+        try {
+            final var colon = reader.readLine();
+            if (!colon.equals(":")) {
+                throw new IllegalArgumentException("Expected [:] as a first byte when parsing integer, instead [%s]".formatted(colon));
+            }
+            return parseInt(reader.readLine());
+        } catch (IOException ioException) {
+            throw new RuntimeException(ioException);
         }
     }
 
@@ -151,21 +176,18 @@ public class Main {
     }
 
     private static class Get implements Command {
-        private final String value;
+        private final Optional<String> value;
 
-        Get(String value) {
-            this.value = value;
+        Get(Optional<String> value) {
+            this.value = requireNonNull(value);
         }
 
         @Override
         public void execute(PrintWriter writer) {
-            if (value != null) {
-                writer.print("$" + value.length() + "\r\n");
-                writer.print(value + "\r\n");
-                writer.flush();
-                return;
-            }
-            writer.print("$-1\r\n");
+            final var bulkStringResponse = value
+                    .map(it -> "$" + it.length() + "\r\n" + it + "\r\n")
+                    .orElse("$-1\r\n");
+            writer.print(bulkStringResponse);
             writer.flush();
         }
     }
