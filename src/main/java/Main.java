@@ -17,10 +17,11 @@ import static java.util.concurrent.Executors.newFixedThreadPool;
 public class Main {
     private static final ExecutorService POOL = newFixedThreadPool(8);
     private static final Database DATABASE = new Database();
+    private static Configuration CONFIG;
 
     public static void main(String[] args) {
-        final var port = portToStartServer(args);
-        try (final var serverSocket = new ServerSocket(port)) {
+        CONFIG = Configuration.parseCommandLineArguments(args);
+        try (final var serverSocket = new ServerSocket(CONFIG.port())) {
             serverSocket.setReuseAddress(true);
 
             while (true) {
@@ -84,7 +85,7 @@ public class Main {
                 final var storedValue = DATABASE.get(keyToLookUp);
                 yield of(new Get(storedValue));
             }
-            case "info" -> of(new Info("master"));
+            case "info" -> of(new Info(CONFIG.role()));
             case null -> empty();
             default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
         };
@@ -131,13 +132,6 @@ public class Main {
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
         }
-    }
-
-    private static int portToStartServer(String[] args) {
-        if (args.length == 0) {
-            return 6379;
-        }
-        return parseInt(args[1]);
     }
 
     /**
