@@ -15,6 +15,7 @@ import static java.util.Optional.of;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
 public class Main {
+    private static final Encoder ENCODER = new Encoder();
     private static final ExecutorService POOL = newFixedThreadPool(8);
     private static final Database DATABASE = new Database();
     private static Configuration CONFIG;
@@ -147,7 +148,8 @@ public class Main {
 
         @Override
         public void execute(PrintWriter writer) {
-            writer.print("+PONG\r\n");
+            final var pong = ENCODER.encodeAsSimpleString("PONG");
+            writer.print(pong);
             writer.flush();
         }
     }
@@ -161,8 +163,8 @@ public class Main {
 
         @Override
         public void execute(PrintWriter writer) {
-            writer.print("$" + echoMessage.length() + "\r\n");
-            writer.print(echoMessage + "\r\n");
+            final var echo = ENCODER.encodeAsBulkString(echoMessage);
+            writer.print(echo);
             writer.flush();
         }
     }
@@ -171,7 +173,8 @@ public class Main {
 
         @Override
         public void execute(PrintWriter writer) {
-            writer.print("+OK\r\n");
+            final var ok = ENCODER.encodeAsSimpleString("OK");
+            writer.print(ok);
             writer.flush();
         }
     }
@@ -185,10 +188,8 @@ public class Main {
 
         @Override
         public void execute(PrintWriter writer) {
-            final var bulkStringResponse = value
-                    .map(it -> "$" + it.length() + "\r\n" + it + "\r\n")
-                    .orElse("$-1\r\n");
-            writer.print(bulkStringResponse);
+            final var encodedValue = ENCODER.encodeAsBulkString(value);
+            writer.print(encodedValue);
             writer.flush();
         }
     }
@@ -202,8 +203,8 @@ public class Main {
 
         @Override
         public void execute(PrintWriter writer) {
-            writer.print("$" + info.length() + "\r\n");
-            writer.print(info + "\r\n");
+            final var encodedInfo = ENCODER.encodeAsBulkString(info);
+            writer.print(encodedInfo);
             writer.flush();
         }
     }
