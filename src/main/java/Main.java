@@ -4,6 +4,7 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
@@ -86,7 +87,10 @@ public class Main {
                 final var storedValue = DATABASE.get(keyToLookUp);
                 yield of(new Get(storedValue));
             }
-            case "info" -> of(new Info(CONFIG.role()));
+            case "info" -> {
+                parseBulkString(reader);
+                yield of(new Info(CONFIG.role()));
+            }
             case null -> empty();
             default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
         };
@@ -195,17 +199,37 @@ public class Main {
     }
 
     private static class Info implements Command {
-        private final String info;
+        private final String role;
+        private final String masterReplId = "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
+        private final String masterReplOffset = "master_repl_offset:0";
 
         Info(String role) {
-            this.info = "role:" + role;
+            this.role = "role:" + role;
         }
 
         @Override
         public void execute(PrintWriter writer) {
-            final var encodedInfo = ENCODER.encodeAsBulkString(info);
+            final var infoReplication = createInfoReplication();
+            final var encodedInfo = ENCODER.encodeAsBulkString(infoReplication);
             writer.print(encodedInfo);
             writer.flush();
+        }
+
+        private List<String> createInfoReplication() {
+            final var replication = "# Replication";
+            if (role.substring(5).equals("master")) {
+                return List.of(
+                        replication,
+                        role,
+                        masterReplId,
+                        masterReplOffset
+                );
+            }
+            return List.of(
+                    replication,
+                    role,
+                    masterReplOffset
+            );
         }
     }
 }
