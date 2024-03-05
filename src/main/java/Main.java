@@ -1,3 +1,5 @@
+import resp.Encoder;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -9,6 +11,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
 import static java.lang.Integer.parseInt;
+import static java.net.InetAddress.getByName;
 import static java.time.Duration.ofMillis;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
@@ -21,11 +24,20 @@ public class Main {
     private static final Database DATABASE = new Database();
     private static Configuration CONFIG;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         CONFIG = Configuration.parseCommandLineArguments(args);
+
+        if (CONFIG.role().equals("slave")) {
+            try (final var socket = new Socket(getByName(CONFIG.masterHost().get()), CONFIG.masterPort().get())) {
+
+                final var writer = new PrintWriter(socket.getOutputStream());
+                writer.print(ENCODER.encodeAsArray("PING"));
+                writer.flush();
+            }
+        }
+
         try (final var serverSocket = new ServerSocket(CONFIG.port())) {
             serverSocket.setReuseAddress(true);
-
             while (true) {
                 final var clientSocket = serverSocket.accept();
                 POOL.execute(() -> handle(clientSocket));

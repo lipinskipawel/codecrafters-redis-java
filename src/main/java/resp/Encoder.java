@@ -1,7 +1,9 @@
+package resp;
+
 import java.util.List;
 import java.util.Optional;
 
-final class Encoder {
+public final class Encoder {
 
     public String encodeAsSimpleString(String toEncode) {
         return "+" + toEncode + "\r\n";
@@ -25,5 +27,10 @@ final class Encoder {
                 .toString();
         final var firstRow = "$" + data.length() + "\r\n";
         return firstRow + data + "\r\n";
+    }
+
+    public String encodeAsArray(String toEncode) {
+        final var firstRow = "*1\r\n";
+        return firstRow + encodeAsBulkString(toEncode);
     }
 }
