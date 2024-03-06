@@ -3,6 +3,8 @@ package resp;
 import java.util.List;
 import java.util.Optional;
 
+import static java.util.stream.Collectors.joining;
+
 public final class Encoder {
 
     public String encodeAsSimpleString(String toEncode) {
@@ -30,7 +32,13 @@ public final class Encoder {
     }
 
     public String encodeAsArray(String toEncode) {
-        final var firstRow = "*1\r\n";
-        return firstRow + encodeAsBulkString(toEncode);
+        return encodeAsArray(List.of(toEncode));
+    }
+
+    public String encodeAsArray(List<String> toEncode) {
+        final var firstRow = "*" + toEncode.size() + "\r\n";
+        return firstRow + toEncode.stream()
+                .map(this::encodeAsBulkString)
+                .collect(joining());
     }
 }

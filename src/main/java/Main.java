@@ -24,16 +24,31 @@ public class Main {
     private static final Database DATABASE = new Database();
     private static Configuration CONFIG;
 
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) {
         CONFIG = Configuration.parseCommandLineArguments(args);
 
         if (CONFIG.role().equals("slave")) {
-            try (final var socket = new Socket(getByName(CONFIG.masterHost().get()), CONFIG.masterPort().get())) {
+            POOL.execute(() -> {
+                try (final var socket = new Socket(getByName(CONFIG.masterHost().get()), CONFIG.masterPort().get())) {
 
-                final var writer = new PrintWriter(socket.getOutputStream());
-                writer.print(ENCODER.encodeAsArray("PING"));
-                writer.flush();
-            }
+                    final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                    final var writer = new PrintWriter(socket.getOutputStream());
+                    while (!socket.isClosed()) {
+                        writer.print(ENCODER.encodeAsArray("PING"));
+                        writer.flush();
+
+                        parseResponseCommand(reader);
+                        writer.print(ENCODER.encodeAsArray(List.of("REPLCONF", "listening-port", String.valueOf(CONFIG.port()))));
+                        writer.flush();
+
+                        parseResponseCommand(reader);
+                        writer.print(ENCODER.encodeAsArray(List.of("REPLCONF", "capa", "psync2")));
+                        writer.flush();
+                    }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
         }
 
         try (final var serverSocket = new ServerSocket(CONFIG.port())) {
@@ -148,6 +163,19 @@ public class Main {
             return parseInt(reader.readLine());
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
+        }
+    }
+
+    private static void parseResponseCommand(BufferedReader reader) throws IOException {
+        final var command = reader.readLine();
+        if (command == null) {
+            return;
+        }
+        switch (command) {
+            case "+PONG" -> System.out.println("Received response for PING");
+            case "+OK" -> System.out.println("Received response OK");
+            case null -> throw new IllegalArgumentException("Could not parse response from master");
+            default -> throw new IllegalStateException("Unexpected value: " + command);
         }
     }
 
