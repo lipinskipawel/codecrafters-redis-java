@@ -33,16 +33,20 @@ public class Main {
 
                     final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                     final var writer = new PrintWriter(socket.getOutputStream());
-                    while (!socket.isClosed()) {
-                        writer.print(ENCODER.encodeAsArray("PING"));
-                        writer.flush();
+                    writer.print(ENCODER.encodeAsArray("PING"));
+                    writer.flush();
 
+                    while (!socket.isClosed()) {
                         parseResponseCommand(reader);
                         writer.print(ENCODER.encodeAsArray(List.of("REPLCONF", "listening-port", String.valueOf(CONFIG.port()))));
                         writer.flush();
 
                         parseResponseCommand(reader);
                         writer.print(ENCODER.encodeAsArray(List.of("REPLCONF", "capa", "psync2")));
+                        writer.flush();
+
+                        parseResponseCommand(reader);
+                        writer.print(ENCODER.encodeAsArray(List.of("PSYNC", "?", "-1")));
                         writer.flush();
                     }
                 } catch (IOException e) {
@@ -175,7 +179,13 @@ public class Main {
             case "+PONG" -> System.out.println("Received response for PING");
             case "+OK" -> System.out.println("Received response OK");
             case null -> throw new IllegalArgumentException("Could not parse response from master");
-            default -> throw new IllegalStateException("Unexpected value: " + command);
+            default -> {
+                if (command.startsWith("+FULLRESYNC")) {
+                    System.out.println("Received response for PSYNC");
+                    return;
+                }
+                throw new IllegalStateException("Unexpected value: " + command);
+            }
         }
     }
 
