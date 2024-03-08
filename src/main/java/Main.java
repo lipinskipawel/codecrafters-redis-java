@@ -92,7 +92,7 @@ public class Main {
     private static Optional<Command> parseCommand(BufferedReader reader) {
         final var command = commandType(reader);
         return switch (command) {
-            case "ping" -> of(new Ping()); // codecrafers.io assumes that PING does not have arguments
+            case "ping", "PING" -> of(new Ping()); // codecrafers.io assumes that PING does not have arguments
             case "echo" -> {
                 final var argumentToEcho = parseBulkString(reader)
                         .orElseThrow(() -> new IllegalArgumentException("Echo command must have argument"));
@@ -122,6 +122,11 @@ public class Main {
                 parseBulkString(reader);
                 yield of(new Info(CONFIG.role()));
             }
+            case "REPLCONF" -> {
+                parseBulkString(reader);
+                parseBulkString(reader);
+                yield of(new Replconf());
+            }
             case null -> empty();
             default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
         };
@@ -129,10 +134,9 @@ public class Main {
 
     private static String commandType(BufferedReader reader) {
         try {
-            final var line = reader.readLine();
-            if (line == null) {
-                return null;
+            while (!reader.ready()) {
             }
+            final var line = reader.readLine();
             return parseBulkString(reader)
                     .orElseThrow(() -> new IllegalArgumentException("First element must be present"));
         } catch (IOException e) {
@@ -280,6 +284,15 @@ public class Main {
                     role,
                     masterReplOffset
             );
+        }
+    }
+
+    private static class Replconf implements Command {
+
+        @Override
+        public void execute(PrintWriter writer) {
+            writer.print(ENCODER.encodeAsSimpleString("OK"));
+            writer.flush();
         }
     }
 }
