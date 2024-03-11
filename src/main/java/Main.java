@@ -127,6 +127,11 @@ public class Main {
                 parseBulkString(reader);
                 yield of(new Replconf());
             }
+            case "PSYNC" -> {
+                parseBulkString(reader);
+                parseBulkString(reader);
+                yield of(new Psync());
+            }
             case null -> empty();
             default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
         };
@@ -136,7 +141,7 @@ public class Main {
         try {
             while (!reader.ready()) {
             }
-            final var line = reader.readLine();
+            final var array = reader.readLine();
             return parseBulkString(reader)
                     .orElseThrow(() -> new IllegalArgumentException("First element must be present"));
         } catch (IOException e) {
@@ -292,6 +297,15 @@ public class Main {
         @Override
         public void execute(PrintWriter writer) {
             writer.print(ENCODER.encodeAsSimpleString("OK"));
+            writer.flush();
+        }
+    }
+
+    private static class Psync implements Command {
+
+        @Override
+        public void execute(PrintWriter writer) {
+            writer.print(ENCODER.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0"));
             writer.flush();
         }
     }
