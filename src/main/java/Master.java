@@ -3,9 +3,10 @@ import resp.Encoder;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -51,14 +52,19 @@ final class Master implements Server {
     private void handle(Socket socket) {
         try {
             final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            final var writer = new PrintWriter(socket.getOutputStream());
+            final var writer = socket.getOutputStream();
             while (!socket.isClosed()) {
-                parseCommand(reader).ifPresent(it -> it.execute(writer));
+                parseCommand(reader).ifPresent(it -> {
+                    try {
+                        it.execute(writer);
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
             }
             System.out.println("Socket was closed");
         } catch (Exception exception) {
             System.out.println("Exception thrown, closing socket: " + exception);
-            exception.printStackTrace();
             try {
                 // closing socket closes input and output streams
                 socket.close();
@@ -167,15 +173,15 @@ final class Master implements Server {
      * Inside encoders, I could have wrapper methods like asSimpleString, asBulkString...
      */
     private interface Command {
-        void execute(PrintWriter writer);
+        void execute(OutputStream writer) throws IOException;
     }
 
     private class Ping implements Command {
 
         @Override
-        public void execute(PrintWriter writer) {
+        public void execute(OutputStream writer) throws IOException {
             final var pong = encoder.encodeAsSimpleString("PONG");
-            writer.print(pong);
+            writer.write(pong.getBytes());
             writer.flush();
         }
     }
@@ -188,9 +194,9 @@ final class Master implements Server {
         }
 
         @Override
-        public void execute(PrintWriter writer) {
+        public void execute(OutputStream writer) throws IOException {
             final var echo = encoder.encodeAsBulkString(echoMessage);
-            writer.print(echo);
+            writer.write(echo.getBytes());
             writer.flush();
         }
     }
@@ -198,9 +204,9 @@ final class Master implements Server {
     private class Set implements Command {
 
         @Override
-        public void execute(PrintWriter writer) {
+        public void execute(OutputStream writer) throws IOException {
             final var ok = encoder.encodeAsSimpleString("OK");
-            writer.print(ok);
+            writer.write(ok.getBytes());
             writer.flush();
         }
     }
@@ -213,9 +219,9 @@ final class Master implements Server {
         }
 
         @Override
-        public void execute(PrintWriter writer) {
+        public void execute(OutputStream writer) throws IOException {
             final var encodedValue = encoder.encodeAsBulkString(value);
-            writer.print(encodedValue);
+            writer.write(encodedValue.getBytes());
             writer.flush();
         }
     }
@@ -226,10 +232,10 @@ final class Master implements Server {
         private final String masterReplOffset = "master_repl_offset:0";
 
         @Override
-        public void execute(PrintWriter writer) {
+        public void execute(OutputStream writer) throws IOException {
             final var infoReplication = createInfoReplication();
             final var encodedInfo = encoder.encodeAsBulkString(infoReplication);
-            writer.print(encodedInfo);
+            writer.write(encodedInfo.getBytes());
             writer.flush();
         }
 
@@ -246,8 +252,8 @@ final class Master implements Server {
     private class Replconf implements Command {
 
         @Override
-        public void execute(PrintWriter writer) {
-            writer.print(encoder.encodeAsSimpleString("OK"));
+        public void execute(OutputStream writer) throws IOException {
+            writer.write(encoder.encodeAsSimpleString("OK").getBytes());
             writer.flush();
         }
     }
@@ -255,8 +261,12 @@ final class Master implements Server {
     private class Psync implements Command {
 
         @Override
-        public void execute(PrintWriter writer) {
-            writer.print(encoder.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0"));
+        public void execute(OutputStream writer) throws IOException {
+            writer.write(encoder.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").getBytes());
+            writer.flush();
+            final var decoded = Base64.getDecoder().decode(Database.EMPTY_DATABASE);
+            writer.write("$%s\r\n".formatted(decoded.length).getBytes());
+            writer.write(decoded);
             writer.flush();
         }
     }

@@ -10,9 +10,10 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
 import static java.util.Optional.ofNullable;
 
-final class Database {
+public final class Database {
     private final Map<String, String> simpleKeyValue;
     private final Map<String, Instant> expiryKey;
+    public static final String EMPTY_DATABASE = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
 
     public Database() {
         this.simpleKeyValue = newHashMap(16);
