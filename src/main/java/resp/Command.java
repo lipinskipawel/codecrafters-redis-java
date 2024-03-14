@@ -1,30 +1,59 @@
 package resp;
 
+import java.util.Optional;
+
 import static java.util.Objects.requireNonNull;
 
 public sealed interface Command {
 
-    record SimpleString(String simpleString) implements Command {
-        public SimpleString {
-            requireNonNull(simpleString);
-        }
-
-        public String firstPart() {
-            return parts()[0];
-        }
-
-        private String[] parts() {
-            return simpleString.split(" ");
+    record Ping(String commandType) implements Command {
+        public Ping {
+            requireNonNull(commandType);
         }
     }
 
-    record BulkString(String bulkString) implements Command {
-        public BulkString {
-            requireNonNull(bulkString);
+    record Echo(String commandType, String echoArgument) implements Command {
+        public Echo {
+            requireNonNull(commandType);
+            requireNonNull(echoArgument);
         }
+    }
 
-        public String data() {
-            return bulkString;
+    record Set(String commandType, String key, String value, Optional<String> expiryTime) implements Command {
+        public Set {
+            requireNonNull(commandType);
+            requireNonNull(key);
+            requireNonNull(value);
+            requireNonNull(expiryTime);
+        }
+    }
+
+    record Get(String commandType, String value) implements Command {
+        public Get {
+            requireNonNull(commandType);
+            requireNonNull(value);
+        }
+    }
+
+    record Info(String commandType) implements Command {
+        public Info {
+            requireNonNull(commandType);
+        }
+    }
+
+    record Replconf(String commandType, String first, String second) implements Command {
+        public Replconf {
+            requireNonNull(commandType);
+            requireNonNull(first);
+            requireNonNull(second);
+        }
+    }
+
+    record Psync(String commandType, String replicationId, String offset) implements Command {
+        public Psync {
+            requireNonNull(commandType);
+            requireNonNull(replicationId);
+            requireNonNull(offset);
         }
     }
 }

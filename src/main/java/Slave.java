@@ -1,3 +1,4 @@
+import resp.Command;
 import resp.Decoder;
 import resp.Encoder;
 
@@ -94,31 +95,23 @@ final class Slave implements Server {
         }
     }
 
-    // https://redis.io/docs/reference/protocol-spec/#resp-protocol-description
     private void parseCommand(BufferedReader reader, PrintWriter writer) {
-        try {
-            while (!reader.ready()) {
-            }
-            final var array = reader.readLine();
-            decoder.decodeBulkString(reader)
-                    .ifPresent(command -> {
-                        switch (command.data()) {
-                            case "info" -> {
-                                decoder.decodeBulkString(reader);
-                                writeInfoResponse(writer);
-                            }
-                            default -> throw new UnsupportedOperationException(
-                                    "Command on replica [%s] not implemented".formatted(command));
-                        }
-                    });
-        } catch (IOException ignored) {
-        }
+        decoder.parseCommand(reader)
+                .ifPresent(command -> {
+                    switch (command) {
+                        case Command.Info ignored -> writeInfoResponse(writer);
+                        default -> throw new UnsupportedOperationException(
+                                "Command on replica [%s] not implemented".formatted(command));
+                    }
+                });
     }
 
     private void receiveResponse(BufferedReader reader) throws IOException {
+        while (!reader.ready()) {
+        }
         decoder.decodeSimpleString(reader)
                 .ifPresentOrElse(command -> {
-                    switch (command.firstPart()) {
+                    switch (command.split(" ")[0]) {
                         case "+PONG" -> System.out.println("Received response for PING");
                         case "+OK" -> System.out.println("Received response OK");
                         case "+FULLRESYNC" -> System.out.println("Received response for PSYNC");

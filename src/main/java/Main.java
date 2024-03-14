@@ -19,6 +19,6 @@ public class Main {
             slave.connectToMaster();
             return slave;
         }
-        return new Master(config, DATABASE, ENCODER);
+        return new Master(config, DATABASE, DECODER, ENCODER);
     }
 }

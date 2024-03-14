@@ -1,3 +1,6 @@
+import resp.Command;
+import resp.Command.Psync;
+import resp.Decoder;
 import resp.Encoder;
 
 import java.io.BufferedReader;
@@ -14,23 +17,30 @@ import java.util.concurrent.ExecutorService;
 import static java.lang.Integer.parseInt;
 import static java.time.Duration.ofMillis;
 import static java.util.Objects.requireNonNull;
-import static java.util.Optional.empty;
-import static java.util.Optional.of;
 import static java.util.concurrent.Executors.newFixedThreadPool;
+import static resp.Command.Echo;
+import static resp.Command.Get;
+import static resp.Command.Info;
+import static resp.Command.Ping;
+import static resp.Command.Replconf;
+import static resp.Command.Set;
 
 final class Master implements Server {
     private static final ExecutorService POOL = newFixedThreadPool(8);
     private final Configuration config;
     private final Database database;
+    private final Decoder decoder;
     private final Encoder encoder;
 
     public Master(
             Configuration configuration,
             Database database,
+            Decoder decoder,
             Encoder encoder
     ) {
         this.config = requireNonNull(configuration);
         this.database = requireNonNull(database);
+        this.decoder = requireNonNull(decoder);
         this.encoder = requireNonNull(encoder);
     }
 
@@ -54,13 +64,7 @@ final class Master implements Server {
             final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
             final var writer = socket.getOutputStream();
             while (!socket.isClosed()) {
-                parseCommand(reader).ifPresent(it -> {
-                    try {
-                        it.execute(writer);
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
+                decoder.parseCommand(reader).ifPresent(it -> respondToCommand(writer, it));
             }
             System.out.println("Socket was closed");
         } catch (Exception exception) {
@@ -75,199 +79,74 @@ final class Master implements Server {
         }
     }
 
-    // https://redis.io/docs/reference/protocol-spec/#resp-protocol-description
-    private Optional<Command> parseCommand(BufferedReader reader) {
-        final var command = commandType(reader);
-        return switch (command) {
-            case "ping", "PING" -> of(new Ping()); // codecrafers.io assumes that PING does not have arguments
-            case "echo" -> {
-                final var argumentToEcho = parseBulkString(reader)
-                        .orElseThrow(() -> new IllegalArgumentException("Echo command must have argument"));
-                yield of(new Echo(argumentToEcho));
+    private void respondToCommand(OutputStream writer, Command command) {
+        switch (command) {
+            // codecrafers.io assumes that PING does not have arguments
+            case Ping ignored -> writePingResponse(writer);
+            case Echo echo -> writeEchoResponse(writer, echo.echoArgument());
+            case Set set -> {
+                set.expiryTime().ifPresentOrElse(
+                        it -> database.set(set.key(), set.value(), ofMillis(parseInt(it))),
+                        () -> database.set(set.key(), set.value())
+                );
+                writeSetResponse(writer);
             }
-            case "set" -> {
-                final var key = parseBulkString(reader).orElseThrow();
-                final var value = parseBulkString(reader).orElseThrow();
-                final var expireMark = parseBulkString(reader);
-                // this is rly bad and should be refactored
-                // initial idea can be around creating proper object with all information in it instead of using String
-                // as an artificial command in the switch expression
-                if (expireMark.isPresent()) {
-                    final var expireTime = parseBulkString(reader).orElseThrow();
-                    database.set(key, value, ofMillis(parseInt(expireTime)));
-                } else {
-                    database.set(key, value);
-                }
-                yield of(new Set());
+            case Get get -> {
+                final var storedValue = database.get(get.value());
+                writeGetResponse(writer, storedValue);
             }
-            case "get" -> {
-                final var keyToLookUp = parseBulkString(reader).orElseThrow();
-                final var storedValue = database.get(keyToLookUp);
-                yield of(new Get(storedValue));
-            }
-            case "info" -> {
-                parseBulkString(reader);
-                yield of(new Info());
-            }
-            case "REPLCONF" -> {
-                parseBulkString(reader);
-                parseBulkString(reader);
-                yield of(new Replconf());
-            }
-            case "PSYNC" -> {
-                parseBulkString(reader);
-                parseBulkString(reader);
-                yield of(new Psync());
-            }
-            case null -> empty();
-            default -> throw new UnsupportedOperationException("command [%s] not implemented".formatted(command));
-        };
-    }
-
-    private String commandType(BufferedReader reader) {
-        try {
-            while (!reader.ready()) {
-            }
-            final var array = reader.readLine();
-            return parseBulkString(reader)
-                    .orElseThrow(() -> new IllegalArgumentException("First element must be present"));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+            case Info ignored -> writeInfoReplicaResponse(writer);
+            case Replconf ignored -> writeReplConfResponse(writer);
+            case Psync ignored -> writePsyncResponse(writer);
         }
     }
 
-    private Optional<String> parseBulkString(BufferedReader reader) {
-        try {
-            if (!reader.ready()) {
-                return empty();
-            }
-            final var dataType = reader.readLine();
-            final var numberOfBytes = parseInt(dataType.substring(1));
-            final var command = reader.readLine();
-            return of(command);
-        } catch (IOException ioException) {
-            System.out.printf("ioException during reading from socket [%s]%n", ioException.getMessage());
-            return empty();
-        } catch (Exception exception) {
-            System.out.printf("exception during parsing bulk string [%s]%n", exception.getMessage());
-            return empty();
-        }
+    private void writePingResponse(OutputStream writer) {
+        writeAndFlush(writer, encoder.encodeAsSimpleString("PONG"));
     }
 
-    private int parseInteger(BufferedReader reader) {
+    private void writeEchoResponse(OutputStream writer, String echoMessage) {
+        writeAndFlush(writer, encoder.encodeAsBulkString(echoMessage));
+    }
+
+    private void writeSetResponse(OutputStream writer) {
+        writeAndFlush(writer, encoder.encodeAsSimpleString("OK"));
+    }
+
+    private void writeGetResponse(OutputStream writer, Optional<String> value) {
+        writeAndFlush(writer, encoder.encodeAsBulkString(value));
+    }
+
+    private void writeInfoReplicaResponse(OutputStream writer) {
+        final var infoReplication = List.of(
+                "# Replication",
+                "role:master",
+                "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
+                "master_repl_offset:0");
+        writeAndFlush(writer, encoder.encodeAsBulkString(infoReplication));
+    }
+
+    private void writeReplConfResponse(OutputStream writer) {
+        writeAndFlush(writer, encoder.encodeAsSimpleString("OK"));
+    }
+
+    private void writePsyncResponse(OutputStream writer) {
+        writeAndFlush(writer, encoder.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0"));
+        final var decoded = Base64.getDecoder().decode(Database.EMPTY_DATABASE);
+        writeAndFlush(writer, "$%s\r\n".formatted(decoded.length));
+        writeAndFlush(writer, decoded);
+    }
+
+    private void writeAndFlush(OutputStream writer, String toSend) {
+        writeAndFlush(writer, toSend.getBytes());
+    }
+
+    private void writeAndFlush(OutputStream writer, byte[] toSend) {
         try {
-            final var colon = reader.readLine();
-            if (!colon.equals(":")) {
-                throw new IllegalArgumentException("Expected [:] as a first byte when parsing integer, instead [%s]".formatted(colon));
-            }
-            return parseInt(reader.readLine());
+            writer.write(toSend);
+            writer.flush();
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
-        }
-    }
-
-
-    /**
-     * Not sure if this abstraction is a good idea.
-     * Probably this should be rewritten into some sort of 'encoders' package.
-     * Inside encoders, I could have wrapper methods like asSimpleString, asBulkString...
-     */
-    private interface Command {
-        void execute(OutputStream writer) throws IOException;
-    }
-
-    private class Ping implements Command {
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            final var pong = encoder.encodeAsSimpleString("PONG");
-            writer.write(pong.getBytes());
-            writer.flush();
-        }
-    }
-
-    private class Echo implements Command {
-        private final String echoMessage;
-
-        Echo(String echoMessage) {
-            this.echoMessage = echoMessage;
-        }
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            final var echo = encoder.encodeAsBulkString(echoMessage);
-            writer.write(echo.getBytes());
-            writer.flush();
-        }
-    }
-
-    private class Set implements Command {
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            final var ok = encoder.encodeAsSimpleString("OK");
-            writer.write(ok.getBytes());
-            writer.flush();
-        }
-    }
-
-    private class Get implements Command {
-        private final Optional<String> value;
-
-        Get(Optional<String> value) {
-            this.value = requireNonNull(value);
-        }
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            final var encodedValue = encoder.encodeAsBulkString(value);
-            writer.write(encodedValue.getBytes());
-            writer.flush();
-        }
-    }
-
-    private class Info implements Command {
-        private final String role = "role:master";
-        private final String masterReplId = "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
-        private final String masterReplOffset = "master_repl_offset:0";
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            final var infoReplication = createInfoReplication();
-            final var encodedInfo = encoder.encodeAsBulkString(infoReplication);
-            writer.write(encodedInfo.getBytes());
-            writer.flush();
-        }
-
-        private List<String> createInfoReplication() {
-            return List.of(
-                    "# Replication",
-                    role,
-                    masterReplId,
-                    masterReplOffset
-            );
-        }
-    }
-
-    private class Replconf implements Command {
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            writer.write(encoder.encodeAsSimpleString("OK").getBytes());
-            writer.flush();
-        }
-    }
-
-    private class Psync implements Command {
-
-        @Override
-        public void execute(OutputStream writer) throws IOException {
-            writer.write(encoder.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0").getBytes());
-            writer.flush();
-            final var decoded = Base64.getDecoder().decode(Database.EMPTY_DATABASE);
-            writer.write("$%s\r\n".formatted(decoded.length).getBytes());
-            writer.write(decoded);
-            writer.flush();
         }
     }
 }
