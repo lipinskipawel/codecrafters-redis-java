@@ -6,9 +6,9 @@ import resp.Encoder;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +31,7 @@ final class Master implements Server {
     private final Database database;
     private final Decoder decoder;
     private final Encoder encoder;
+    private final List<Socket> replicas;
 
     public Master(
             Configuration configuration,
@@ -42,6 +43,7 @@ final class Master implements Server {
         this.database = requireNonNull(database);
         this.decoder = requireNonNull(decoder);
         this.encoder = requireNonNull(encoder);
+        this.replicas = new ArrayList<>();
     }
 
     @Override
@@ -62,9 +64,8 @@ final class Master implements Server {
     private void handle(Socket socket) {
         try {
             final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            final var writer = socket.getOutputStream();
             while (!socket.isClosed()) {
-                decoder.parseCommand(reader).ifPresent(it -> respondToCommand(writer, it));
+                decoder.parseCommand(reader).ifPresent(it -> respondToCommand(socket, it));
             }
             System.out.println("Socket was closed");
         } catch (Exception exception) {
@@ -76,73 +77,84 @@ final class Master implements Server {
                 System.out.println("Exception by the accept method has been thrown: " + exception.getMessage());
                 throw new RuntimeException(e);
             }
+        } finally {
+            replicas.remove(socket);
         }
     }
 
-    private void respondToCommand(OutputStream writer, Command command) {
+    private void respondToCommand(Socket socket, Command command) {
         switch (command) {
             // codecrafers.io assumes that PING does not have arguments
-            case Ping ignored -> writePingResponse(writer);
-            case Echo echo -> writeEchoResponse(writer, echo.echoArgument());
+            case Ping ignored -> writePingResponse(socket);
+            case Echo echo -> writeEchoResponse(socket, echo.echoArgument());
             case Set set -> {
                 set.expiryTime().ifPresentOrElse(
                         it -> database.set(set.key(), set.value(), ofMillis(parseInt(it))),
                         () -> database.set(set.key(), set.value())
                 );
-                writeSetResponse(writer);
+                writeSetResponse(socket);
+                propagateCommand(set);
             }
             case Get get -> {
                 final var storedValue = database.get(get.value());
-                writeGetResponse(writer, storedValue);
+                writeGetResponse(socket, storedValue);
             }
-            case Info ignored -> writeInfoReplicaResponse(writer);
-            case Replconf ignored -> writeReplConfResponse(writer);
-            case Psync ignored -> writePsyncResponse(writer);
+            case Info ignored -> writeInfoReplicaResponse(socket);
+            case Replconf ignored -> writeReplConfResponse(socket);
+            case Psync ignored -> {
+                writePsyncResponse(socket);
+                replicas.add(socket);
+            }
         }
     }
 
-    private void writePingResponse(OutputStream writer) {
-        writeAndFlush(writer, encoder.encodeAsSimpleString("PONG"));
+    private void propagateCommand(Command command) {
+        replicas.forEach(replica -> writeAndFlush(replica, encoder.encodeAsArray(command.elements())));
     }
 
-    private void writeEchoResponse(OutputStream writer, String echoMessage) {
-        writeAndFlush(writer, encoder.encodeAsBulkString(echoMessage));
+    private void writePingResponse(Socket socket) {
+        writeAndFlush(socket, encoder.encodeAsSimpleString("PONG"));
     }
 
-    private void writeSetResponse(OutputStream writer) {
-        writeAndFlush(writer, encoder.encodeAsSimpleString("OK"));
+    private void writeEchoResponse(Socket socket, String echoMessage) {
+        writeAndFlush(socket, encoder.encodeAsBulkString(echoMessage));
     }
 
-    private void writeGetResponse(OutputStream writer, Optional<String> value) {
-        writeAndFlush(writer, encoder.encodeAsBulkString(value));
+    private void writeSetResponse(Socket socket) {
+        writeAndFlush(socket, encoder.encodeAsSimpleString("OK"));
     }
 
-    private void writeInfoReplicaResponse(OutputStream writer) {
+    private void writeGetResponse(Socket socket, Optional<String> value) {
+        writeAndFlush(socket, encoder.encodeAsBulkString(value));
+    }
+
+    private void writeInfoReplicaResponse(Socket socket) {
         final var infoReplication = List.of(
                 "# Replication",
                 "role:master",
                 "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
                 "master_repl_offset:0");
-        writeAndFlush(writer, encoder.encodeAsBulkString(infoReplication));
+        writeAndFlush(socket, encoder.encodeAsBulkString(infoReplication));
     }
 
-    private void writeReplConfResponse(OutputStream writer) {
-        writeAndFlush(writer, encoder.encodeAsSimpleString("OK"));
+    private void writeReplConfResponse(Socket socket) {
+        writeAndFlush(socket, encoder.encodeAsSimpleString("OK"));
     }
 
-    private void writePsyncResponse(OutputStream writer) {
-        writeAndFlush(writer, encoder.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0"));
+    private void writePsyncResponse(Socket socket) {
+        writeAndFlush(socket, encoder.encodeAsSimpleString("FULLRESYNC 8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb 0"));
         final var decoded = Base64.getDecoder().decode(Database.EMPTY_DATABASE);
-        writeAndFlush(writer, "$%s\r\n".formatted(decoded.length));
-        writeAndFlush(writer, decoded);
+        writeAndFlush(socket, "$%s\r\n".formatted(decoded.length));
+        writeAndFlush(socket, decoded);
     }
 
-    private void writeAndFlush(OutputStream writer, String toSend) {
-        writeAndFlush(writer, toSend.getBytes());
+    private void writeAndFlush(Socket socket, String toSend) {
+        writeAndFlush(socket, toSend.getBytes());
     }
 
-    private void writeAndFlush(OutputStream writer, byte[] toSend) {
+    private void writeAndFlush(Socket socket, byte[] toSend) {
         try {
+            final var writer = socket.getOutputStream();
             writer.write(toSend);
             writer.flush();
         } catch (IOException ioException) {

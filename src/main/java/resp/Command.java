@@ -1,14 +1,21 @@
 package resp;
 
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
 public sealed interface Command {
+    List<String> elements();
 
     record Ping(String commandType) implements Command {
         public Ping {
             requireNonNull(commandType);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType);
         }
     }
 
@@ -16,6 +23,11 @@ public sealed interface Command {
         public Echo {
             requireNonNull(commandType);
             requireNonNull(echoArgument);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, echoArgument);
         }
     }
 
@@ -26,6 +38,14 @@ public sealed interface Command {
             requireNonNull(value);
             requireNonNull(expiryTime);
         }
+
+        @Override
+        public List<String> elements() {
+            return expiryTime
+                    .map(it -> List.of(commandType, key, value, it))
+                    .or(() -> Optional.of(List.of(commandType, key, value)))
+                    .get();
+        }
     }
 
     record Get(String commandType, String value) implements Command {
@@ -33,11 +53,21 @@ public sealed interface Command {
             requireNonNull(commandType);
             requireNonNull(value);
         }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, value);
+        }
     }
 
     record Info(String commandType) implements Command {
         public Info {
             requireNonNull(commandType);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType);
         }
     }
 
@@ -47,6 +77,12 @@ public sealed interface Command {
             requireNonNull(first);
             requireNonNull(second);
         }
+
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, first, second);
+        }
     }
 
     record Psync(String commandType, String replicationId, String offset) implements Command {
@@ -54,6 +90,11 @@ public sealed interface Command {
             requireNonNull(commandType);
             requireNonNull(replicationId);
             requireNonNull(offset);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, replicationId, offset);
         }
     }
 }
