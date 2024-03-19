@@ -15,7 +15,7 @@ public class Main {
 
     private static Server runServer(Configuration config) {
         if (config.role().equals("slave")) {
-            final var slave = new Slave(config, DECODER, ENCODER);
+            final var slave = new Slave(config, DATABASE, DECODER, ENCODER);
             slave.connectToMaster();
             return slave;
         }

@@ -5,28 +5,35 @@ import resp.Encoder;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 
+import static java.lang.Integer.parseInt;
 import static java.net.InetAddress.getByName;
+import static java.time.Duration.ofMillis;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
 final class Slave implements Server {
     private static final ExecutorService POOL = newFixedThreadPool(8);
     private final Configuration config;
+    private final Database database;
     private final Decoder decoder;
     private final Encoder encoder;
 
     public Slave(
             Configuration configuration,
+            Database database,
             Decoder decoder,
             Encoder encoder
     ) {
         this.config = requireNonNull(configuration);
+        this.database = requireNonNull(database);
         this.decoder = requireNonNull(decoder);
         this.encoder = requireNonNull(encoder);
     }
@@ -37,21 +44,39 @@ final class Slave implements Server {
 
                 final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
                 final var writer = new PrintWriter(socket.getOutputStream());
+                final var rawWriter = socket.getOutputStream();
                 writer.print(encoder.encodeAsArray("PING"));
                 writer.flush();
                 receiveResponse(reader);
 
+                writer.print(encoder.encodeAsArray(List.of("REPLCONF", "listening-port", String.valueOf(config.port()))));
+                writer.flush();
+
+                receiveResponse(reader);
+                writer.print(encoder.encodeAsArray(List.of("REPLCONF", "capa", "psync2")));
+                writer.flush();
+
+                receiveResponse(reader);
+                writer.print(encoder.encodeAsArray(List.of("PSYNC", "?", "-1")));
+                writer.flush();
+                receiveResponse(reader);
+
+                receiveRdbFile(reader);
+
                 while (!socket.isClosed()) {
-                    writer.print(encoder.encodeAsArray(List.of("REPLCONF", "listening-port", String.valueOf(config.port()))));
-                    writer.flush();
-
-                    receiveResponse(reader);
-                    writer.print(encoder.encodeAsArray(List.of("REPLCONF", "capa", "psync2")));
-                    writer.flush();
-
-                    receiveResponse(reader);
-                    writer.print(encoder.encodeAsArray(List.of("PSYNC", "?", "-1")));
-                    writer.flush();
+                    decoder.parseCommand(reader)
+                            .ifPresent(command -> {
+                                switch (command) {
+                                    case Command.Set set -> {
+                                        set.expiryTime().ifPresentOrElse(
+                                                it -> database.set(set.key(), set.value(), ofMillis(parseInt(it))),
+                                                () -> database.set(set.key(), set.value())
+                                        );
+                                        writeSetResponse(rawWriter);
+                                    }
+                                    default -> throw new IllegalStateException("Unexpected value: " + command);
+                                }
+                            });
                 }
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -74,11 +99,10 @@ final class Slave implements Server {
         }
     }
 
-
     private void handle(Socket socket) {
         try {
             final var reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            final var writer = new PrintWriter(socket.getOutputStream());
+            final var writer = socket.getOutputStream();
             while (!socket.isClosed()) {
                 parseCommand(reader, writer);
             }
@@ -95,11 +119,15 @@ final class Slave implements Server {
         }
     }
 
-    private void parseCommand(BufferedReader reader, PrintWriter writer) {
+    private void parseCommand(BufferedReader reader, OutputStream writer) {
         decoder.parseCommand(reader)
                 .ifPresent(command -> {
                     switch (command) {
                         case Command.Info ignored -> writeInfoResponse(writer);
+                        case Command.Get get -> {
+                            final var storedValue = database.get(get.value());
+                            writeGetResponse(writer, storedValue);
+                        }
                         default -> throw new UnsupportedOperationException(
                                 "Command on replica [%s] not implemented".formatted(command));
                     }
@@ -125,14 +153,45 @@ final class Slave implements Server {
                 });
     }
 
-    private void writeInfoResponse(PrintWriter writer) {
-        final var infoReplication = List.of(
-                "# Replication",
-                "role:slave",
-                "master_repl_offset:0"
-        );
-        final var encodedInfo = encoder.encodeAsBulkString(infoReplication);
-        writer.print(encodedInfo);
-        writer.flush();
+    private void receiveRdbFile(BufferedReader reader) throws IOException {
+        final var length = parseInt(reader.readLine().substring(1));
+        final var rawRdbFile = new char[length - 1]; // I have no idea why * is included in the RDB file
+        reader.read(rawRdbFile, 0, length - 1);
+    }
+
+    private void writeInfoResponse(OutputStream writer) {
+        try {
+            final var infoReplication = List.of(
+                    "# Replication",
+                    "role:slave",
+                    "master_repl_offset:0"
+            );
+            final var encodedInfo = encoder.encodeAsBulkString(infoReplication);
+            writer.write(encodedInfo.getBytes());
+            writer.flush();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void writeSetResponse(OutputStream writer) {
+        writeAndFlush(writer, encoder.encodeAsSimpleString("OK"));
+    }
+
+    private void writeGetResponse(OutputStream writer, Optional<String> value) {
+        writeAndFlush(writer, encoder.encodeAsBulkString(value));
+    }
+
+    private void writeAndFlush(OutputStream writer, String toSend) {
+        writeAndFlush(writer, toSend.getBytes());
+    }
+
+    private void writeAndFlush(OutputStream writer, byte[] toSend) {
+        try {
+            writer.write(toSend);
+            writer.flush();
+        } catch (IOException ioException) {
+            throw new RuntimeException(ioException);
+        }
     }
 }
