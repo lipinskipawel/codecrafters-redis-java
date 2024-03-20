@@ -74,6 +74,8 @@ final class Slave implements Server {
                                         );
                                         writeSetResponse(rawWriter);
                                     }
+                                    case Command.Replconf ignored ->
+                                            writeReplconfAckResponse(rawWriter, List.of("REPLCONF", "ACK", "0"));
                                     default -> throw new IllegalStateException("Unexpected value: " + command);
                                 }
                             });
@@ -180,6 +182,10 @@ final class Slave implements Server {
 
     private void writeGetResponse(OutputStream writer, Optional<String> value) {
         writeAndFlush(writer, encoder.encodeAsBulkString(value));
+    }
+
+    private void writeReplconfAckResponse(OutputStream writer, List<String> values) {
+        writeAndFlush(writer, encoder.encodeAsArray(values));
     }
 
     private void writeAndFlush(OutputStream writer, String toSend) {
