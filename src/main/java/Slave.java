@@ -25,6 +25,7 @@ final class Slave implements Server {
     private final Database database;
     private final Decoder decoder;
     private final Encoder encoder;
+    private int numberOfProcessedBytes;
 
     public Slave(
             Configuration configuration,
@@ -36,6 +37,7 @@ final class Slave implements Server {
         this.database = requireNonNull(database);
         this.decoder = requireNonNull(decoder);
         this.encoder = requireNonNull(encoder);
+        this.numberOfProcessedBytes = 0;
     }
 
     public void connectToMaster() {
@@ -72,10 +74,16 @@ final class Slave implements Server {
                                                 it -> database.set(set.key(), set.value(), ofMillis(parseInt(it))),
                                                 () -> database.set(set.key(), set.value())
                                         );
-                                        writeSetResponse(rawWriter);
+                                        updateReplicatedBytes(set);
                                     }
-                                    case Command.Replconf ignored ->
-                                            writeReplconfAckResponse(rawWriter, List.of("REPLCONF", "ACK", "0"));
+                                    case Command.Replconf replconf -> {
+                                        if (replconf.elements().get(1).equalsIgnoreCase("getack")) {
+                                            final var processedBytes = String.valueOf(numberOfProcessedBytes);
+                                            writeReplconfAckResponse(rawWriter, List.of("REPLCONF", "ACK", processedBytes));
+                                            updateReplicatedBytes(replconf);
+                                        }
+                                    }
+                                    case Command.Ping ping -> updateReplicatedBytes(ping);
                                     default -> throw new IllegalStateException("Unexpected value: " + command);
                                 }
                             });
@@ -159,6 +167,20 @@ final class Slave implements Server {
         final var length = parseInt(reader.readLine().substring(1));
         final var rawRdbFile = new char[length - 1]; // I have no idea why * is included in the RDB file
         reader.read(rawRdbFile, 0, length - 1);
+    }
+
+    private void updateReplicatedBytes(Command command) {
+        final var header = 3 + String.valueOf(command.elements().size()).length(); // *,\r\n
+
+        final var payload = command.elements()
+                .stream()
+                .mapToInt(it -> {
+                    final var firstRow = 3 + String.valueOf(it.length()).length(); // $,\r\n
+                    return firstRow + it.length() + 2; // \r\n
+                })
+                .sum();
+
+        numberOfProcessedBytes += (header + payload);
     }
 
     private void writeInfoResponse(OutputStream writer) {

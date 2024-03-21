@@ -78,7 +78,6 @@ public sealed interface Command {
             requireNonNull(second);
         }
 
-
         @Override
         public List<String> elements() {
             return List.of(commandType, first, second);
