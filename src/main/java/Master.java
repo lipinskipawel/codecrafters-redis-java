@@ -10,14 +10,19 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static java.lang.Integer.parseInt;
+import static java.lang.Long.parseLong;
 import static java.time.Duration.ofMillis;
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.CompletableFuture.runAsync;
 import static java.util.concurrent.Executors.newFixedThreadPool;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static resp.Command.Echo;
 import static resp.Command.Get;
 import static resp.Command.Info;
@@ -26,12 +31,13 @@ import static resp.Command.Replconf;
 import static resp.Command.Set;
 
 final class Master implements Server {
-    private static final ExecutorService POOL = newFixedThreadPool(8);
+    private static final ExecutorService POOL = newFixedThreadPool(16);
     private final Configuration config;
     private final Database database;
     private final Decoder decoder;
     private final Encoder encoder;
-    private final List<Socket> replicas;
+    private final Map<Socket, Long> replicasWithOffset;
+    private final AtomicLong offset;
 
     public Master(
             Configuration configuration,
@@ -43,7 +49,8 @@ final class Master implements Server {
         this.database = requireNonNull(database);
         this.decoder = requireNonNull(decoder);
         this.encoder = requireNonNull(encoder);
-        this.replicas = new CopyOnWriteArrayList<>();
+        this.replicasWithOffset = new ConcurrentHashMap<>();
+        this.offset = new AtomicLong();
     }
 
     @Override
@@ -78,7 +85,7 @@ final class Master implements Server {
                 throw new RuntimeException(e);
             }
         } finally {
-            replicas.remove(socket);
+            replicasWithOffset.remove(socket);
         }
     }
 
@@ -100,17 +107,84 @@ final class Master implements Server {
                 writeGetResponse(socket, storedValue);
             }
             case Info ignored -> writeInfoReplicaResponse(socket);
-            case Replconf ignored -> writeReplConfResponse(socket);
+            case Replconf replconf -> {
+                if (replconf.first().equalsIgnoreCase("ack")) {
+                    replicasWithOffset.computeIfPresent(socket, (con, cur) -> cur + parseLong(replconf.second()));
+                }
+                if (replconf.first().equalsIgnoreCase("listening-port")
+                        || replconf.first().equalsIgnoreCase("capa")) {
+                    writeReplConfResponse(socket);
+                }
+            }
             case Psync ignored -> {
                 writePsyncResponse(socket);
-                replicas.add(socket);
+                replicasWithOffset.put(socket, 0L);
             }
-            case Command.Wait wait -> writeWaitResponse(socket, replicas.size());
+            case Command.Wait wait -> {
+                final var currentOffset = offset.get();
+                if (currentOffset == 0) {
+                    writeWaitResponse(socket, replicasWithOffset.size());
+                    return;
+                }
+                updateOffset(new Replconf("REPLCONF", "GETACK", "*"));
+                replicasWithOffset.keySet().forEach(this::sendGetAck);
+
+                try {
+                    runAsync(waitForReplicasToSync(parseLong(wait.numberOfReplica()), currentOffset))
+                            .orTimeout(parseLong(wait.timeout()), MILLISECONDS)
+                            .join();
+                } catch (Exception e) {
+                    System.out.println(e);
+                }
+
+                final var replicasInSync = replicasInSync(currentOffset);
+                writeWaitResponse(socket, replicasInSync);
+            }
         }
     }
 
+    private void sendGetAck(Socket socket) {
+        runAsync(() -> writeAndFlush(socket, encoder.encodeAsArray(List.of("REPLCONF", "GETACK", "*"))));
+    }
+
+    private void updateOffset(Command command) {
+        final var readBytes = updateReplicatedBytes(command);
+        offset.addAndGet(readBytes);
+    }
+
+    private Runnable waitForReplicasToSync(long numOfReplicasThatMustBeInSync, long currentOffset) {
+        return () -> {
+            var replicasInSync = replicasInSync(currentOffset);
+            while (numOfReplicasThatMustBeInSync >= replicasInSync) {
+                replicasInSync = replicasInSync(currentOffset);
+            }
+        };
+    }
+
+    private long replicasInSync(long offset) {
+        return replicasWithOffset.values()
+                .stream()
+                .filter(it -> it >= offset)
+                .count();
+    }
+
+    private long updateReplicatedBytes(Command command) {
+        final var header = 3 + String.valueOf(command.elements().size()).length(); // *,\r\n
+
+        final var payload = command.elements()
+                .stream()
+                .mapToInt(it -> {
+                    final var firstRow = 3 + String.valueOf(it.length()).length(); // $,\r\n
+                    return firstRow + it.length() + 2; // \r\n
+                })
+                .sum();
+
+        return header + payload;
+    }
+
     private void propagateCommand(Command command) {
-        replicas.forEach(replica -> writeAndFlush(replica, encoder.encodeAsArray(command.elements())));
+        updateOffset(command);
+        replicasWithOffset.keySet().forEach(replica -> writeAndFlush(replica, encoder.encodeAsArray(command.elements())));
     }
 
     private void writePingResponse(Socket socket) {
@@ -134,7 +208,7 @@ final class Master implements Server {
                 "# Replication",
                 "role:master",
                 "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
-                "master_repl_offset:0");
+                "master_repl_offset:" + offset);
         writeAndFlush(socket, encoder.encodeAsBulkString(infoReplication));
     }
 
@@ -149,7 +223,7 @@ final class Master implements Server {
         writeAndFlush(socket, decoded);
     }
 
-    private void writeWaitResponse(Socket socket, int numberOfReplicasInSync) {
+    private void writeWaitResponse(Socket socket, long numberOfReplicasInSync) {
         writeAndFlush(socket, encoder.encodeAsInteger(numberOfReplicasInSync));
     }
 

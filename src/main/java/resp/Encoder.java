@@ -42,7 +42,7 @@ public final class Encoder {
                 .collect(joining());
     }
 
-    public String encodeAsInteger(int integer) {
+    public String encodeAsInteger(long integer) {
         return ":" + integer + "\r\n";
     }
 }
