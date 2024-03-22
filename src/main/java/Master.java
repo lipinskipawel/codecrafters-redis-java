@@ -105,7 +105,7 @@ final class Master implements Server {
                 writePsyncResponse(socket);
                 replicas.add(socket);
             }
-            case Command.Wait wait -> writeWaitResponse(socket, 0);
+            case Command.Wait wait -> writeWaitResponse(socket, replicas.size());
         }
     }
 
