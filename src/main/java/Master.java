@@ -105,6 +105,7 @@ final class Master implements Server {
                 writePsyncResponse(socket);
                 replicas.add(socket);
             }
+            case Command.Wait wait -> writeWaitResponse(socket, 0);
         }
     }
 
@@ -146,6 +147,10 @@ final class Master implements Server {
         final var decoded = Base64.getDecoder().decode(Database.EMPTY_DATABASE);
         writeAndFlush(socket, "$%s\r\n".formatted(decoded.length));
         writeAndFlush(socket, decoded);
+    }
+
+    private void writeWaitResponse(Socket socket, int numberOfReplicasInSync) {
+        writeAndFlush(socket, encoder.encodeAsInteger(numberOfReplicasInSync));
     }
 
     private void writeAndFlush(Socket socket, String toSend) {

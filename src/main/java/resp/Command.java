@@ -96,4 +96,17 @@ public sealed interface Command {
             return List.of(commandType, replicationId, offset);
         }
     }
+
+    record Wait(String commandType, String numberOfReplica, String timeout) implements Command {
+        public Wait {
+            requireNonNull(commandType);
+            requireNonNull(numberOfReplica);
+            requireNonNull(timeout);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, numberOfReplica, timeout);
+        }
+    }
 }

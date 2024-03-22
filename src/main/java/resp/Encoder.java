@@ -41,4 +41,8 @@ public final class Encoder {
                 .map(this::encodeAsBulkString)
                 .collect(joining());
     }
+
+    public String encodeAsInteger(int integer) {
+        return ":" + integer + "\r\n";
+    }
 }
