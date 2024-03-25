@@ -59,7 +59,7 @@ public final class Decoder {
                     yield new Command.Set(elements.get(0), elements.get(1), elements.get(2), of(elements.get(4)));
                 }
                 case "get" -> new Command.Get(elements.get(0), elements.get(1));
-                case "info" -> new Command.Info(elements.get(0));
+                case "info" -> new Command.Info(elements.get(0), elements.get(1));
                 case "replconf" -> new Command.Replconf(elements.get(0), elements.get(1), elements.get(2));
                 case "psync" -> new Command.Psync(elements.get(0), elements.get(1), elements.get(2));
                 case "wait" -> new Command.Wait(elements.get(0), elements.get(1), elements.get(2));

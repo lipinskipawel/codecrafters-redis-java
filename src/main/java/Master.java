@@ -93,7 +93,7 @@ final class Master implements Server {
         switch (command) {
             // codecrafers.io assumes that PING does not have arguments
             case Ping ignored -> writePingResponse(socket);
-            case Echo echo -> writeEchoResponse(socket, echo.echoArgument());
+            case Echo echo -> writeEchoResponse(socket, echo.argument());
             case Set set -> {
                 set.expiryTime().ifPresentOrElse(
                         it -> database.set(set.key(), set.value(), ofMillis(parseInt(it))),
@@ -108,11 +108,11 @@ final class Master implements Server {
             }
             case Info ignored -> writeInfoReplicaResponse(socket);
             case Replconf replconf -> {
-                if (replconf.first().equalsIgnoreCase("ack")) {
-                    replicasWithOffset.computeIfPresent(socket, (con, cur) -> cur + parseLong(replconf.second()));
+                if (replconf.key().equalsIgnoreCase("ack")) {
+                    replicasWithOffset.computeIfPresent(socket, (con, cur) -> cur + parseLong(replconf.value()));
                 }
-                if (replconf.first().equalsIgnoreCase("listening-port")
-                        || replconf.first().equalsIgnoreCase("capa")) {
+                if (replconf.key().equalsIgnoreCase("listening-port")
+                        || replconf.key().equalsIgnoreCase("capa")) {
                     writeReplConfResponse(socket);
                 }
             }

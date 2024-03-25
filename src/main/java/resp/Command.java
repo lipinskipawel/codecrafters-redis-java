@@ -19,15 +19,15 @@ public sealed interface Command {
         }
     }
 
-    record Echo(String commandType, String echoArgument) implements Command {
+    record Echo(String commandType, String argument) implements Command {
         public Echo {
             requireNonNull(commandType);
-            requireNonNull(echoArgument);
+            requireNonNull(argument);
         }
 
         @Override
         public List<String> elements() {
-            return List.of(commandType, echoArgument);
+            return List.of(commandType, argument);
         }
     }
 
@@ -60,9 +60,10 @@ public sealed interface Command {
         }
     }
 
-    record Info(String commandType) implements Command {
+    record Info(String commandType, String section) implements Command {
         public Info {
             requireNonNull(commandType);
+            requireNonNull(section);
         }
 
         @Override
@@ -71,16 +72,16 @@ public sealed interface Command {
         }
     }
 
-    record Replconf(String commandType, String first, String second) implements Command {
+    record Replconf(String commandType, String key, String value) implements Command {
         public Replconf {
             requireNonNull(commandType);
-            requireNonNull(first);
-            requireNonNull(second);
+            requireNonNull(key);
+            requireNonNull(value);
         }
 
         @Override
         public List<String> elements() {
-            return List.of(commandType, first, second);
+            return List.of(commandType, key, value);
         }
     }
 
