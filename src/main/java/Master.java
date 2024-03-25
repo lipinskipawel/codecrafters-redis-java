@@ -1,4 +1,5 @@
 import resp.Command;
+import resp.Command.Config;
 import resp.Command.Psync;
 import resp.Decoder;
 import resp.Encoder;
@@ -140,6 +141,7 @@ final class Master implements Server {
                 final var replicasInSync = replicasInSync(currentOffset);
                 writeWaitResponse(socket, replicasInSync);
             }
+            case Config configCommand -> writeConfigResponse(socket, configCommand, config);
         }
     }
 
@@ -225,6 +227,15 @@ final class Master implements Server {
 
     private void writeWaitResponse(Socket socket, long numberOfReplicasInSync) {
         writeAndFlush(socket, encoder.encodeAsInteger(numberOfReplicasInSync));
+    }
+
+    private void writeConfigResponse(Socket socket, Config config, Configuration configuration) {
+        if (config.value().equals("dir")) {
+            writeAndFlush(socket, encoder.encodeAsArray(List.of(config.value(), configuration.directory().get())));
+        }
+        if (config.value().equals("dbfilename")) {
+            writeAndFlush(socket, encoder.encodeAsArray(List.of(config.value(), configuration.file().get())));
+        }
     }
 
     private void writeAndFlush(Socket socket, String toSend) {

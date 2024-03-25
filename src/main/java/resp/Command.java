@@ -110,4 +110,17 @@ public sealed interface Command {
             return List.of(commandType, numberOfReplica, timeout);
         }
     }
+
+    record Config(String commandType, String key, String value) implements Command {
+        public Config {
+            requireNonNull(commandType);
+            requireNonNull(key);
+            requireNonNull(value);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, key, value);
+        }
+    }
 }

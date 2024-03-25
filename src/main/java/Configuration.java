@@ -1,6 +1,5 @@
 import java.util.Optional;
 
-import static java.lang.Integer.parseInt;
 import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
@@ -11,12 +10,23 @@ final class Configuration {
     private final String role;
     private Optional<String> masterHost;
     private Optional<Integer> masterPort;
+    private Optional<String> directory;
+    private Optional<String> file;
 
-    private Configuration(int port, String role, Optional<String> masterHost, Optional<Integer> masterPort) {
+    private Configuration(
+            int port,
+            String role,
+            Optional<String> masterHost,
+            Optional<Integer> masterPort,
+            Optional<String> directory,
+            Optional<String> file
+    ) {
         this.port = port;
         this.role = requireNonNull(role);
         this.masterHost = requireNonNull(masterHost);
         this.masterPort = requireNonNull(masterPort);
+        this.directory = requireNonNull(directory);
+        this.file = requireNonNull(file);
     }
 
     public static Configuration parseCommandLineArguments(String[] args) {
@@ -24,7 +34,9 @@ final class Configuration {
         final var role = roleOfServer(args);
         final var masterHost = masterHost(args);
         final var masterPort = masterPort(args);
-        return new Configuration(port, role, masterHost, masterPort);
+        final var directory = directory(args);
+        final var file = file(args);
+        return new Configuration(port, role, masterHost, masterPort, directory, file);
     }
 
     public int port() {
@@ -43,11 +55,20 @@ final class Configuration {
         return masterPort;
     }
 
+    public Optional<String> directory() {
+        return directory;
+    }
+
+    public Optional<String> file() {
+        return file;
+    }
+
     private static int portToStartServer(String[] args) {
-        if (args.length == 0) {
-            return 6379;
-        }
-        return parseInt(args[1]);
+        return findIndex(args, "--port")
+                .map(it -> it + 1)
+                .map(it -> args[it])
+                .map(Integer::parseInt)
+                .orElse(6379);
     }
 
     private static String roleOfServer(String[] args) {
@@ -55,28 +76,36 @@ final class Configuration {
     }
 
     private static Optional<String> masterHost(String[] args) {
-        try {
-            return of(args[3]);
-        } catch (IndexOutOfBoundsException e) {
-            return empty();
-        }
+        return findIndex(args, "--replicaof")
+                .map(it -> it + 1)
+                .map(it -> args[it]);
     }
 
     private static Optional<Integer> masterPort(String[] args) {
-        try {
-            return of(parseInt(args[4]));
-        } catch (IndexOutOfBoundsException e) {
-            return empty();
-        }
+        return findIndex(args, "--replicaof")
+                .map(it -> it + 2)
+                .map(it -> args[it])
+                .map(Integer::parseInt);
     }
 
-    @Override
-    public String toString() {
-        return "Configuration{" +
-                "port=" + port +
-                ", role='" + role + '\'' +
-                ", masterHost=" + masterHost +
-                ", masterPort=" + masterPort +
-                '}';
+    private static Optional<String> directory(String[] args) {
+        return findIndex(args, "--dir")
+                .map(it -> it + 1)
+                .map(it -> args[it]);
+    }
+
+    private static Optional<String> file(String[] args) {
+        return findIndex(args, "--dbfilename")
+                .map(it -> it + 1)
+                .map(it -> args[it]);
+    }
+
+    private static Optional<Integer> findIndex(String[] args, String name) {
+        for (var i = 0; i < args.length; i++) {
+            if (args[i].equals(name)) {
+                return of(i);
+            }
+        }
+        return empty();
     }
 }
