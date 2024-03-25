@@ -142,10 +142,11 @@ final class Master implements Server {
                 writeWaitResponse(socket, replicasInSync);
             }
             case Config configCommand -> writeConfigResponse(socket, configCommand, config);
-            case Command.Type type -> database.get(type.key())
-                    .map(it -> "string")
-                    .or(() -> Optional.of("none"))
-                    .ifPresent(it -> writeTypeResponse(socket, it));
+            case Command.Type type -> writeTypeResponse(socket, database.type(type.key()));
+            case Command.Xadd xadd -> {
+                database.saveStream(xadd.streamKey(), xadd.streamKeyValue(), xadd.values());
+                writeSaveStreamResponse(socket, xadd.streamKeyValue());
+            }
         }
     }
 
@@ -240,6 +241,10 @@ final class Master implements Server {
         if (config.value().equals("dbfilename")) {
             writeAndFlush(socket, encoder.encodeAsArray(List.of(config.value(), configuration.file().get())));
         }
+    }
+
+    private void writeSaveStreamResponse(Socket socket, String value) {
+        writeAndFlush(socket, encoder.encodeAsBulkString(value));
     }
 
     private void writeTypeResponse(Socket socket, String type) {

@@ -1,9 +1,12 @@
 package resp;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Stream.concat;
 
 public sealed interface Command {
     List<String> elements();
@@ -133,6 +136,24 @@ public sealed interface Command {
         @Override
         public List<String> elements() {
             return List.of(commandType, key);
+        }
+    }
+
+    record Xadd(String commandType, String streamKey, String streamKeyValue, Map<String, String> values)
+            implements Command {
+        public Xadd {
+            requireNonNull(commandType);
+            requireNonNull(streamKey);
+            requireNonNull(streamKeyValue);
+            requireNonNull(values);
+        }
+
+        @Override
+        public List<String> elements() {
+            final var mapValues = values.entrySet()
+                    .stream()
+                    .flatMap(it -> Stream.of(it.getKey(), it.getValue()));
+            return concat(Stream.of(commandType, streamKey, streamKeyValue), mapValues).toList();
         }
     }
 }

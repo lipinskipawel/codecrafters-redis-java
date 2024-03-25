@@ -3,6 +3,7 @@ package resp;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Optional;
 
 import static java.lang.Integer.parseInt;
@@ -65,6 +66,16 @@ public final class Decoder {
                 case "wait" -> new Command.Wait(elements.get(0), elements.get(1), elements.get(2));
                 case "config" -> new Command.Config(elements.get(0), elements.get(1), elements.get(2));
                 case "type" -> new Command.Type(elements.get(0), elements.get(1));
+                case "xadd" -> {
+                    final var keyValues = elements.stream()
+                            .skip(3)
+                            .toList();
+                    final var map = new HashMap<String, String>();
+                    for (var i = 0; i < keyValues.size(); i = i + 2) {
+                        map.put(keyValues.get(i), keyValues.get(i + 1));
+                    }
+                    yield new Command.Xadd(elements.get(0), elements.get(1), elements.get(2), map);
+                }
                 default -> throw new IllegalStateException("Unexpected value: " + elements.get(0));
             };
         } catch (IOException ioException) {

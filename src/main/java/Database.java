@@ -13,11 +13,13 @@ import static java.util.Optional.ofNullable;
 public final class Database {
     private final Map<String, String> simpleKeyValue;
     private final Map<String, Instant> expiryKey;
+    private final Map<StreamKey, Map<String, String>> streamStore;
     public static final String EMPTY_DATABASE = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
 
     public Database() {
         this.simpleKeyValue = newHashMap(16);
         this.expiryKey = newHashMap(16);
+        this.streamStore = newHashMap(16);
     }
 
     public synchronized void set(String key, String value) {
@@ -43,5 +45,22 @@ public final class Database {
             return empty();
         }
         return ofNullable(simpleKeyValue.get(key));
+    }
+
+    public synchronized void saveStream(String key, String value, Map<String, String> values) {
+        streamStore.put(StreamKey.streamKey(key, value), values);
+    }
+
+    public synchronized String type(String key) {
+        return get(key)
+                .map(it -> "string")
+                .or(() -> Optional.of(searchStreamStore(key) ? "stream" : "none"))
+                .get();
+    }
+
+    private boolean searchStreamStore(String streamKey) {
+        return streamStore.keySet()
+                .stream()
+                .anyMatch(it -> it.key().equals(streamKey));
     }
 }
