@@ -142,6 +142,10 @@ final class Master implements Server {
                 writeWaitResponse(socket, replicasInSync);
             }
             case Config configCommand -> writeConfigResponse(socket, configCommand, config);
+            case Command.Type type -> database.get(type.key())
+                    .map(it -> "string")
+                    .or(() -> Optional.of("none"))
+                    .ifPresent(it -> writeTypeResponse(socket, it));
         }
     }
 
@@ -236,6 +240,10 @@ final class Master implements Server {
         if (config.value().equals("dbfilename")) {
             writeAndFlush(socket, encoder.encodeAsArray(List.of(config.value(), configuration.file().get())));
         }
+    }
+
+    private void writeTypeResponse(Socket socket, String type) {
+        writeAndFlush(socket, encoder.encodeAsSimpleString(type));
     }
 
     private void writeAndFlush(Socket socket, String toSend) {

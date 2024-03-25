@@ -123,4 +123,16 @@ public sealed interface Command {
             return List.of(commandType, key, value);
         }
     }
+
+    record Type(String commandType, String key) implements Command {
+        public Type {
+            requireNonNull(commandType);
+            requireNonNull(key);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, key);
+        }
+    }
 }

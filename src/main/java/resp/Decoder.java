@@ -64,6 +64,7 @@ public final class Decoder {
                 case "psync" -> new Command.Psync(elements.get(0), elements.get(1), elements.get(2));
                 case "wait" -> new Command.Wait(elements.get(0), elements.get(1), elements.get(2));
                 case "config" -> new Command.Config(elements.get(0), elements.get(1), elements.get(2));
+                case "type" -> new Command.Type(elements.get(0), elements.get(1));
                 default -> throw new IllegalStateException("Unexpected value: " + elements.get(0));
             };
         } catch (IOException ioException) {
