@@ -5,6 +5,7 @@ import java.util.Stack;
 
 import static db.Pair.pair;
 import static java.lang.Long.parseLong;
+import static java.lang.System.currentTimeMillis;
 import static java.util.HashMap.newHashMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
@@ -23,8 +24,18 @@ final class StreamStore {
 
     public Pair put(String streamKey, String value, Map<String, String> map) {
         final var entries = streams.get(streamKey);
+
+        if (value.equals("*")) {
+            final var stack = new Stack<Entries>();
+            final var millis = currentTimeMillis() + "-0";
+            stack.push(new Entries(millis, map));
+            streams.put(streamKey, stack);
+            return pair(of(millis), empty());
+        }
+
         final var id = value.split("-");
         final var millis = parseLong(id[0]);
+
         if (id[1].equals("*")) {
             return generateSequenceNumber(millis, streamKey, map, entries);
         }
