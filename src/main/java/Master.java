@@ -1,3 +1,4 @@
+import db.Database;
 import resp.Command;
 import resp.Command.Config;
 import resp.Command.Psync;
@@ -144,8 +145,13 @@ final class Master implements Server {
             case Config configCommand -> writeConfigResponse(socket, configCommand, config);
             case Command.Type type -> writeTypeResponse(socket, database.type(type.key()));
             case Command.Xadd xadd -> {
-                database.saveStream(xadd.streamKey(), xadd.streamKeyValue(), xadd.values());
-                writeSaveStreamResponse(socket, xadd.streamKeyValue());
+                final var response = database.saveStream(xadd.streamKey(), xadd.streamKeyValue(), xadd.values());
+                // consider returning Pair or something better
+                if (response.equals(xadd.streamKeyValue())) {
+                    writeSaveStreamResponse(socket, response);
+                    return;
+                }
+                writeErrorStreamResponse(socket, response);
             }
         }
     }
@@ -245,6 +251,10 @@ final class Master implements Server {
 
     private void writeSaveStreamResponse(Socket socket, String value) {
         writeAndFlush(socket, encoder.encodeAsBulkString(value));
+    }
+
+    private void writeErrorStreamResponse(Socket socket, String value) {
+        writeAndFlush(socket, encoder.encodeAsError(value));
     }
 
     private void writeTypeResponse(Socket socket, String type) {

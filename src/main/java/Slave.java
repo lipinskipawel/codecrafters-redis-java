@@ -1,3 +1,4 @@
+import db.Database;
 import resp.Command;
 import resp.Decoder;
 import resp.Encoder;

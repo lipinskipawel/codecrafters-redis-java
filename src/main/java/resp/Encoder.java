@@ -45,4 +45,8 @@ public final class Encoder {
     public String encodeAsInteger(long integer) {
         return ":" + integer + "\r\n";
     }
+
+    public String encodeAsError(String toEncode) {
+        return "-" + toEncode + "\r\n";
+    }
 }
