@@ -145,13 +145,10 @@ final class Master implements Server {
             case Config configCommand -> writeConfigResponse(socket, configCommand, config);
             case Command.Type type -> writeTypeResponse(socket, database.type(type.key()));
             case Command.Xadd xadd -> {
-                final var response = database.saveStream(xadd.streamKey(), xadd.streamKeyValue(), xadd.values());
-                // consider returning Pair or something better
-                if (response.equals(xadd.streamKeyValue())) {
-                    writeSaveStreamResponse(socket, response);
-                    return;
-                }
-                writeErrorStreamResponse(socket, response);
+                final var response = database.saveStream(xadd.streamKey(), xadd.streamKeyValue(), xadd.values())
+                        .map(encoder::encodeAsBulkString, encoder::encodeAsError)
+                        .actualValue();
+                writeAndFlush(socket, response);
             }
         }
     }

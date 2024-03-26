@@ -49,7 +49,7 @@ public final class Database {
         return ofNullable(simpleKeyValue.get(key));
     }
 
-    public synchronized String saveStream(String key, String value, Map<String, String> values) {
+    public synchronized Pair saveStream(String key, String value, Map<String, String> values) {
         return streamStore.put(key, value, values);
     }
 
