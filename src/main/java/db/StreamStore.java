@@ -110,8 +110,8 @@ final class StreamStore {
         if (entries == null) {
             return new Stack<>();
         }
-        final var startTime = start.split("-")[0];
-        final var startSequenceNumber = parseLong(start.split("-")[1]);
+        final var startTime = lowerBoundTime(start, end);
+        final var startSequenceNumber = lowerBoundSequenceNumber(start);
         final var endTime = end.split("-")[0];
         final var endSequenceNumber = parseLong(end.split("-")[1]);
         final var result = new Stack<Entries>();
@@ -126,6 +126,20 @@ final class StreamStore {
             }
         }
         return result;
+    }
+
+    private String lowerBoundTime(String lowerBoundId, String upperBoundId) {
+        if (lowerBoundId.equals("-")) {
+            return upperBoundId.split("-")[0];
+        }
+        return lowerBoundId.split("-")[0];
+    }
+
+    private long lowerBoundSequenceNumber(String lowerBoundId) {
+        if (lowerBoundId.equals("-")) {
+            return 0;
+        }
+        return parseLong(lowerBoundId.split("-")[1]);
     }
 
     public boolean containsStream(String key) {
