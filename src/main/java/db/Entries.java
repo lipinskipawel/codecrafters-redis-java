@@ -6,8 +6,8 @@ import static java.lang.Integer.parseInt;
 import static java.lang.Long.parseLong;
 import static java.util.Objects.requireNonNull;
 
-record Entries(String id, Map<String, String> pairs) {
-    Entries {
+public record Entries(String id, Map<String, String> pairs) {
+    public Entries {
         requireNonNull(id);
         requireNonNull(pairs);
     }

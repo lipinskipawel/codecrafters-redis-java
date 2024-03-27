@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Stack;
 
 import static java.time.Duration.ofMinutes;
 import static java.time.Instant.now;
@@ -51,6 +52,10 @@ public final class Database {
 
     public synchronized Pair saveStream(String key, String value, Map<String, String> values) {
         return streamStore.put(key, value, values);
+    }
+
+    public synchronized Stack<Entries> range(String streamKey, String start, String end) {
+        return streamStore.range(streamKey, start, end);
     }
 
     public synchronized String type(String key) {

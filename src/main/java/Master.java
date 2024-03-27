@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 import static java.lang.Integer.parseInt;
 import static java.lang.Long.parseLong;
@@ -149,6 +150,21 @@ final class Master implements Server {
                         .map(encoder::encodeAsBulkString, encoder::encodeAsError)
                         .actualValue();
                 writeAndFlush(socket, response);
+            }
+            case Command.Xrange xrange -> {
+                final var response = database.range(xrange.streamKey(), xrange.start(), xrange.end());
+                final var encodedEntries = response.stream()
+                        .map(it -> {
+                            final var encodedId = encoder.encodeAsBulkString(it.id());
+                            final var mapValues = it.pairs().entrySet()
+                                    .stream()
+                                    .flatMap(pair -> Stream.of(pair.getKey(), pair.getValue()))
+                                    .toList();
+                            final var encodedMap = encoder.encodeAsArray(mapValues);
+                            return encoder.wrapContentAsArray(List.of(encodedId, encodedMap));
+                        })
+                        .toList();
+                writeAndFlush(socket, encoder.wrapContentAsArray(encodedEntries));
             }
         }
     }

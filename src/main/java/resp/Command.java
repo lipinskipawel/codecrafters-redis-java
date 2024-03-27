@@ -156,4 +156,18 @@ public sealed interface Command {
             return concat(Stream.of(commandType, streamKey, streamKeyValue), mapValues).toList();
         }
     }
+
+    record Xrange(String commandType, String streamKey, String start, String end) implements Command {
+        public Xrange {
+            requireNonNull(commandType);
+            requireNonNull(streamKey);
+            requireNonNull(start);
+            requireNonNull(end);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, streamKey, start, end);
+        }
+    }
 }

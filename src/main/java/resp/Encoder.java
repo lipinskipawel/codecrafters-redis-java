@@ -42,6 +42,11 @@ public final class Encoder {
                 .collect(joining());
     }
 
+    public String wrapContentAsArray(List<String> toWrap) {
+        final var firstRow = "*" + toWrap.size() + "\r\n";
+        return firstRow + String.join("", toWrap);
+    }
+
     public String encodeAsInteger(long integer) {
         return ":" + integer + "\r\n";
     }

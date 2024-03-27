@@ -105,6 +105,29 @@ final class StreamStore {
         return pair(of(generatedId), empty());
     }
 
+    public Stack<Entries> range(String streamKey, String start, String end) {
+        final var entries = streams.get(streamKey);
+        if (entries == null) {
+            return new Stack<>();
+        }
+        final var startTime = start.split("-")[0];
+        final var startSequenceNumber = parseLong(start.split("-")[1]);
+        final var endTime = end.split("-")[0];
+        final var endSequenceNumber = parseLong(end.split("-")[1]);
+        final var result = new Stack<Entries>();
+        for (var entry : entries) {
+            final var split = entry.id().split("-");
+            final var time = split[0];
+            final var sequenceNumber = parseLong(split[1]);
+            if (startTime.equals(time) &&
+                    (sequenceNumber >= startSequenceNumber && sequenceNumber <= endSequenceNumber)
+            ) {
+                result.push(entry);
+            }
+        }
+        return result;
+    }
+
     public boolean containsStream(String key) {
         return streams.containsKey(key);
     }
