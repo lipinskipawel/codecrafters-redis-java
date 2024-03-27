@@ -113,7 +113,7 @@ final class StreamStore {
         final var startTime = lowerBoundTime(start, end);
         final var startSequenceNumber = lowerBoundSequenceNumber(start);
         final var endTime = end.split("-")[0];
-        final var endSequenceNumber = parseLong(end.split("-")[1]);
+        final var endSequenceNumber = upperBoundSequenceNumber(end);
         final var result = new Stack<Entries>();
         for (var entry : entries) {
             final var split = entry.id().split("-");
@@ -140,6 +140,13 @@ final class StreamStore {
             return 0;
         }
         return parseLong(lowerBoundId.split("-")[1]);
+    }
+
+    private long upperBoundSequenceNumber(String upperBoundId) {
+        if (upperBoundId.equals("+")) {
+            return Long.MAX_VALUE;
+        }
+        return parseLong(upperBoundId.split("-")[1]);
     }
 
     public boolean containsStream(String key) {
