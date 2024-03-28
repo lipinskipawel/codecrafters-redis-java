@@ -149,6 +149,23 @@ final class StreamStore {
         return parseLong(upperBoundId.split("-")[1]);
     }
 
+    public Stack<Entries> xread(String streams, String streamKey, String id) {
+        final var entries = this.streams.get(streamKey);
+        if (entries == null) {
+            return new Stack<>();
+        }
+        final var baseSequenceNumber = parseLong(id.split("-")[1]);
+        final var result = new Stack<Entries>();
+        for (var entry : entries) {
+            final var split = entry.id().split("-");
+            final var sequenceNumber = parseLong(split[1]);
+            if (sequenceNumber > baseSequenceNumber) {
+                result.push(entry);
+            }
+        }
+        return result;
+    }
+
     public boolean containsStream(String key) {
         return streams.containsKey(key);
     }

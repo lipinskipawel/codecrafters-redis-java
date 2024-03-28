@@ -170,4 +170,18 @@ public sealed interface Command {
             return List.of(commandType, streamKey, start, end);
         }
     }
+
+    record Xread(String commandType, String streams, String streamKey, String id) implements Command {
+        public Xread {
+            requireNonNull(commandType);
+            requireNonNull(streams);
+            requireNonNull(streamKey);
+            requireNonNull(id);
+        }
+
+        @Override
+        public List<String> elements() {
+            return List.of(commandType, streams, streamKey, id);
+        }
+    }
 }

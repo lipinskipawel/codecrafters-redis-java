@@ -166,6 +166,25 @@ final class Master implements Server {
                         .toList();
                 writeAndFlush(socket, encoder.wrapContentAsArray(encodedEntries));
             }
+            case Command.Xread xread -> {
+                final var response = database.xread(xread.streams(), xread.streamKey(), xread.id());
+                final var encodedStreamKey = encoder.encodeAsBulkString(xread.streamKey());
+                final var encodedEntries = response.stream()
+                        .map(it -> {
+                            final var encodedId = encoder.encodeAsBulkString(it.id());
+                            final var mapValues = it.pairs().entrySet()
+                                    .stream()
+                                    .flatMap(pair -> Stream.of(pair.getKey(), pair.getValue()))
+                                    .toList();
+                            final var encodedMap = encoder.encodeAsArray(mapValues);
+                            return encoder.wrapContentAsArray(List.of(encodedId, encodedMap));
+                        })
+                                .toList();
+                final var wrappedEntries = encoder.wrapContentAsArray(encodedEntries);
+                final var idWithEntries = Stream.concat(Stream.of(encodedStreamKey), Stream.of(wrappedEntries)).toList();
+                final var wrappedIdWithEntries = encoder.wrapContentAsArray(idWithEntries);
+                writeAndFlush(socket, encoder.wrapContentAsArray(List.of(wrappedIdWithEntries)));
+            }
         }
     }
 

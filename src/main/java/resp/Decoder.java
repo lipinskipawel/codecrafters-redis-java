@@ -77,6 +77,7 @@ public final class Decoder {
                     yield new Command.Xadd(elements.get(0), elements.get(1), elements.get(2), map);
                 }
                 case "xrange" -> new Command.Xrange(elements.get(0), elements.get(1), elements.get(2), elements.get(3));
+                case "xread" -> new Command.Xread(elements.get(0), elements.get(1), elements.get(2), elements.get(3));
                 default -> throw new IllegalStateException("Unexpected value: " + elements.get(0));
             };
         } catch (IOException ioException) {

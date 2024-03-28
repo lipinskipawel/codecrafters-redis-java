@@ -58,6 +58,10 @@ public final class Database {
         return streamStore.range(streamKey, start, end);
     }
 
+    public synchronized Stack<Entries> xread(String streams, String streamKey, String id) {
+        return streamStore.xread(streams, streamKey, id);
+    }
+
     public synchronized String type(String key) {
         return get(key)
                 .map(it -> "string")
