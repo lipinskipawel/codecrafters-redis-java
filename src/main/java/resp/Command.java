@@ -171,17 +171,19 @@ public sealed interface Command {
         }
     }
 
-    record Xread(String commandType, String streams, String streamKey, String id) implements Command {
+    record Xread(String commandType, String streams, Map<String, String> streamKeyWithId) implements Command {
         public Xread {
             requireNonNull(commandType);
             requireNonNull(streams);
-            requireNonNull(streamKey);
-            requireNonNull(id);
+            requireNonNull(streamKeyWithId);
         }
 
         @Override
         public List<String> elements() {
-            return List.of(commandType, streams, streamKey, id);
+            final var mapValues = streamKeyWithId.entrySet()
+                    .stream()
+                    .flatMap(it -> Stream.of(it.getKey(), it.getValue()));
+            return concat(Stream.of(commandType, streams), mapValues).toList();
         }
     }
 }

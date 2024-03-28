@@ -11,6 +11,7 @@ import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -167,23 +168,31 @@ final class Master implements Server {
                 writeAndFlush(socket, encoder.wrapContentAsArray(encodedEntries));
             }
             case Command.Xread xread -> {
-                final var response = database.xread(xread.streams(), xread.streamKey(), xread.id());
-                final var encodedStreamKey = encoder.encodeAsBulkString(xread.streamKey());
-                final var encodedEntries = response.stream()
-                        .map(it -> {
-                            final var encodedId = encoder.encodeAsBulkString(it.id());
-                            final var mapValues = it.pairs().entrySet()
+                final var response = database.xread(xread.streamKeyWithId());
+                final var idWithEntries = response
+                        .entrySet()
+                        .stream()
+                        .map(streamKeyWithId -> {
+                            final var encodedStreamKey = encoder.encodeAsBulkString(streamKeyWithId.getKey());
+                            final var encodedEntries = streamKeyWithId.getValue()
                                     .stream()
-                                    .flatMap(pair -> Stream.of(pair.getKey(), pair.getValue()))
+                                    .map(it -> {
+                                        final var encodedId = encoder.encodeAsBulkString(it.id());
+                                        final var mapValues = it.pairs().entrySet()
+                                                .stream()
+                                                .flatMap(pair -> Stream.of(pair.getKey(), pair.getValue()))
+                                                .toList();
+                                        final var encodedMap = encoder.encodeAsArray(mapValues);
+                                        return encoder.wrapContentAsArray(List.of(encodedId, encodedMap));
+                                    })
                                     .toList();
-                            final var encodedMap = encoder.encodeAsArray(mapValues);
-                            return encoder.wrapContentAsArray(List.of(encodedId, encodedMap));
+                            final var wrappedEntries = encoder.wrapContentAsArray(encodedEntries);
+                            return List.of(encoder.wrapContentAsArray(List.of(encodedStreamKey, wrappedEntries)));
                         })
-                                .toList();
-                final var wrappedEntries = encoder.wrapContentAsArray(encodedEntries);
-                final var idWithEntries = Stream.concat(Stream.of(encodedStreamKey), Stream.of(wrappedEntries)).toList();
+                        .flatMap(Collection::stream)
+                        .toList();
                 final var wrappedIdWithEntries = encoder.wrapContentAsArray(idWithEntries);
-                writeAndFlush(socket, encoder.wrapContentAsArray(List.of(wrappedIdWithEntries)));
+                writeAndFlush(socket, wrappedIdWithEntries);
             }
         }
     }

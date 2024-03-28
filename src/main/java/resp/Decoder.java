@@ -77,7 +77,17 @@ public final class Decoder {
                     yield new Command.Xadd(elements.get(0), elements.get(1), elements.get(2), map);
                 }
                 case "xrange" -> new Command.Xrange(elements.get(0), elements.get(1), elements.get(2), elements.get(3));
-                case "xread" -> new Command.Xread(elements.get(0), elements.get(1), elements.get(2), elements.get(3));
+                case "xread" -> {
+                    final var keyValues = elements.stream()
+                            .skip(2)
+                            .toList();
+                    final var step = keyValues.size() / 2;
+                    final var map = new HashMap<String, String>();
+                    for (var i = 0; i < keyValues.size() / 2; i++) {
+                        map.put(keyValues.get(i), keyValues.get(i + step));
+                    }
+                    yield new Command.Xread(elements.get(0), elements.get(1), map);
+                }
                 default -> throw new IllegalStateException("Unexpected value: " + elements.get(0));
             };
         } catch (IOException ioException) {

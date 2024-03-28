@@ -10,6 +10,7 @@ import static java.util.HashMap.newHashMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
 import static java.util.Optional.of;
+import static java.util.stream.Collectors.toMap;
 
 final class StreamStore {
     private final Map<String, Stack<Entries>> streams;
@@ -149,21 +150,27 @@ final class StreamStore {
         return parseLong(upperBoundId.split("-")[1]);
     }
 
-    public Stack<Entries> xread(String streams, String streamKey, String id) {
-        final var entries = this.streams.get(streamKey);
-        if (entries == null) {
-            return new Stack<>();
-        }
-        final var baseSequenceNumber = parseLong(id.split("-")[1]);
-        final var result = new Stack<Entries>();
-        for (var entry : entries) {
-            final var split = entry.id().split("-");
-            final var sequenceNumber = parseLong(split[1]);
-            if (sequenceNumber > baseSequenceNumber) {
-                result.push(entry);
-            }
-        }
-        return result;
+    public Map<String, Stack<Entries>> xread(Map<String, String> streamsWithIds) {
+        return streamsWithIds.entrySet()
+                .stream()
+                .map(entrySet -> {
+                    final var entries = this.streams.get(entrySet.getKey());
+                    if (entries == null) {
+                        return Map.of(entrySet.getKey(), new Stack<Entries>());
+                    }
+                    final var baseSequenceNumber = parseLong(entrySet.getValue().split("-")[1]);
+                    final var result = new Stack<Entries>();
+                    for (var entry : entries) {
+                        final var split = entry.id().split("-");
+                        final var sequenceNumber = parseLong(split[1]);
+                        if (sequenceNumber > baseSequenceNumber) {
+                            result.push(entry);
+                        }
+                    }
+                    return Map.of(entrySet.getKey(), result);
+                })
+                .flatMap(map -> map.entrySet().stream())
+                .collect(toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     public boolean containsStream(String key) {
