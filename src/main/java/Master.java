@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 import static java.lang.Integer.parseInt;
+import static java.lang.Long.MAX_VALUE;
 import static java.lang.Long.parseLong;
 import static java.time.Duration.ofMillis;
 import static java.util.Objects.requireNonNull;
@@ -183,6 +184,7 @@ final class Master implements Server {
                     .ifPresentOrElse(block -> {
                         final var nullResponse = encoder.encodeAsBulkString(empty());
                         try {
+                            final var timeout = parseLong(block);
                             final var response = supplyAsync(() -> {
                                 var readFromDb = nullResponse;
                                 do {
@@ -190,7 +192,7 @@ final class Master implements Server {
                                 } while (readFromDb.equals(nullResponse));
                                 return readFromDb;
                             })
-                                    .orTimeout(parseLong(block), MILLISECONDS)
+                                    .orTimeout(timeout != 0 ? timeout : MAX_VALUE, MILLISECONDS)
                                     .join();
                             writeAndFlush(socket, response);
                         } catch (CompletionException | CancellationException e) {
