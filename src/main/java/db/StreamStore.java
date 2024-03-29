@@ -159,7 +159,7 @@ final class StreamStore {
                     if (entries == null) {
                         return Map.of(entrySet.getKey(), new Stack<Entries>());
                     }
-                    final var baseSequenceNumber = parseLong(entrySet.getValue().split("-")[1]);
+                    final var baseSequenceNumber = parseSequenceNumber(entrySet, entries.peek());
                     final var result = new Stack<Entries>();
                     for (var entry : entries) {
                         final var split = entry.id().split("-");
@@ -172,6 +172,14 @@ final class StreamStore {
                 })
                 .flatMap(map -> map.entrySet().stream())
                 .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (o1, o2) -> o1, LinkedHashMap::new));
+    }
+
+    private long parseSequenceNumber(Map.Entry<String, String> entrySet, Entries top) {
+        final var id = entrySet.getValue();
+        if (id.equals("$")) {
+            return top.sequenceNumber();
+        }
+        return parseLong(id.split("-")[1]);
     }
 
     public boolean containsStream(String key) {
