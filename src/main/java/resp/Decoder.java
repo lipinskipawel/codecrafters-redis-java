@@ -4,6 +4,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static java.lang.Integer.parseInt;
@@ -78,21 +81,31 @@ public final class Decoder {
                 }
                 case "xrange" -> new Command.Xrange(elements.get(0), elements.get(1), elements.get(2), elements.get(3));
                 case "xread" -> {
+                    final var block = findBlock(elements);
+                    final var skip = block.isEmpty() ? 2 : 4;
                     final var keyValues = elements.stream()
-                            .skip(2)
+                            .skip(skip)
                             .toList();
                     final var step = keyValues.size() / 2;
-                    final var map = new HashMap<String, String>();
+                    final Map<String, String> map = new LinkedHashMap<>();
                     for (var i = 0; i < keyValues.size() / 2; i++) {
                         map.put(keyValues.get(i), keyValues.get(i + step));
                     }
-                    yield new Command.Xread(elements.get(0), elements.get(1), map);
+                    yield new Command.Xread(elements.get(0), block, map);
                 }
                 default -> throw new IllegalStateException("Unexpected value: " + elements.get(0));
             };
         } catch (IOException ioException) {
             throw new RuntimeException(ioException);
         }
+    }
+
+    private Optional<String> findBlock(List<String> xread) {
+        var blockTime = Optional.<String>empty();
+        if (xread.get(1).equals("block")) {
+            blockTime = of(xread.get(2));
+        }
+        return blockTime;
     }
 
     private Optional<String> decodeBulkString(BufferedReader reader) {

@@ -2,6 +2,9 @@ import db.Database;
 import resp.Command;
 import resp.Command.Config;
 import resp.Command.Psync;
+import resp.Command.Xadd;
+import resp.Command.Xrange;
+import resp.Command.Xread;
 import resp.Decoder;
 import resp.Encoder;
 
@@ -15,6 +18,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Vector;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
@@ -24,15 +30,20 @@ import static java.lang.Integer.parseInt;
 import static java.lang.Long.parseLong;
 import static java.time.Duration.ofMillis;
 import static java.util.Objects.requireNonNull;
+import static java.util.Optional.empty;
 import static java.util.concurrent.CompletableFuture.runAsync;
+import static java.util.concurrent.CompletableFuture.supplyAsync;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.function.Predicate.not;
 import static resp.Command.Echo;
 import static resp.Command.Get;
 import static resp.Command.Info;
 import static resp.Command.Ping;
 import static resp.Command.Replconf;
 import static resp.Command.Set;
+import static resp.Command.Type;
+import static resp.Command.Wait;
 
 final class Master implements Server {
     private static final ExecutorService POOL = newFixedThreadPool(16);
@@ -124,7 +135,7 @@ final class Master implements Server {
                 writePsyncResponse(socket);
                 replicasWithOffset.put(socket, 0L);
             }
-            case Command.Wait wait -> {
+            case Wait wait -> {
                 final var currentOffset = offset.get();
                 if (currentOffset == 0) {
                     writeWaitResponse(socket, replicasWithOffset.size());
@@ -145,14 +156,14 @@ final class Master implements Server {
                 writeWaitResponse(socket, replicasInSync);
             }
             case Config configCommand -> writeConfigResponse(socket, configCommand, config);
-            case Command.Type type -> writeTypeResponse(socket, database.type(type.key()));
-            case Command.Xadd xadd -> {
+            case Type type -> writeTypeResponse(socket, database.type(type.key()));
+            case Xadd xadd -> {
                 final var response = database.saveStream(xadd.streamKey(), xadd.streamKeyValue(), xadd.values())
                         .map(encoder::encodeAsBulkString, encoder::encodeAsError)
                         .actualValue();
                 writeAndFlush(socket, response);
             }
-            case Command.Xrange xrange -> {
+            case Xrange xrange -> {
                 final var response = database.range(xrange.streamKey(), xrange.start(), xrange.end());
                 final var encodedEntries = response.stream()
                         .map(it -> {
@@ -167,34 +178,56 @@ final class Master implements Server {
                         .toList();
                 writeAndFlush(socket, encoder.wrapContentAsArray(encodedEntries));
             }
-            case Command.Xread xread -> {
-                final var response = database.xread(xread.streamKeyWithId());
-                final var idWithEntries = response
-                        .entrySet()
-                        .stream()
-                        .map(streamKeyWithId -> {
-                            final var encodedStreamKey = encoder.encodeAsBulkString(streamKeyWithId.getKey());
-                            final var encodedEntries = streamKeyWithId.getValue()
-                                    .stream()
-                                    .map(it -> {
-                                        final var encodedId = encoder.encodeAsBulkString(it.id());
-                                        final var mapValues = it.pairs().entrySet()
-                                                .stream()
-                                                .flatMap(pair -> Stream.of(pair.getKey(), pair.getValue()))
-                                                .toList();
-                                        final var encodedMap = encoder.encodeAsArray(mapValues);
-                                        return encoder.wrapContentAsArray(List.of(encodedId, encodedMap));
-                                    })
-                                    .toList();
-                            final var wrappedEntries = encoder.wrapContentAsArray(encodedEntries);
-                            return List.of(encoder.wrapContentAsArray(List.of(encodedStreamKey, wrappedEntries)));
-                        })
-                        .flatMap(Collection::stream)
-                        .toList();
-                final var wrappedIdWithEntries = encoder.wrapContentAsArray(idWithEntries);
-                writeAndFlush(socket, wrappedIdWithEntries);
-            }
+            case Xread xread -> xread
+                    .blockTime()
+                    .ifPresentOrElse(block -> {
+                        final var nullResponse = encoder.encodeAsBulkString(empty());
+                        try {
+                            final var response = supplyAsync(() -> {
+                                var readFromDb = nullResponse;
+                                do {
+                                    readFromDb = xreadFromDatabase(xread);
+                                } while (readFromDb.equals(nullResponse));
+                                return readFromDb;
+                            })
+                                    .orTimeout(parseLong(block), MILLISECONDS)
+                                    .join();
+                            writeAndFlush(socket, response);
+                        } catch (CompletionException | CancellationException e) {
+                            writeAndFlush(socket, nullResponse);
+                        }
+                    }, () -> writeAndFlush(socket, xreadFromDatabase(xread)));
         }
+    }
+
+    private String xreadFromDatabase(Xread xread) {
+        final var response = database.xread(xread.streamKeyWithId());
+        if (response.values().stream().noneMatch(not(Vector::isEmpty))) {
+            return encoder.encodeAsBulkString(empty());
+        }
+        final var idWithEntries = response
+                .entrySet()
+                .stream()
+                .map(streamKeyWithId -> {
+                    final var encodedStreamKey = encoder.encodeAsBulkString(streamKeyWithId.getKey());
+                    final var encodedEntries = streamKeyWithId.getValue()
+                            .stream()
+                            .map(it -> {
+                                final var encodedId = encoder.encodeAsBulkString(it.id());
+                                final var mapValues = it.pairs().entrySet()
+                                        .stream()
+                                        .flatMap(pair -> Stream.of(pair.getKey(), pair.getValue()))
+                                        .toList();
+                                final var encodedMap = encoder.encodeAsArray(mapValues);
+                                return encoder.wrapContentAsArray(List.of(encodedId, encodedMap));
+                            })
+                            .toList();
+                    final var wrappedEntries = encoder.wrapContentAsArray(encodedEntries);
+                    return List.of(encoder.wrapContentAsArray(List.of(encodedStreamKey, wrappedEntries)));
+                })
+                .flatMap(Collection::stream)
+                .toList();
+        return encoder.wrapContentAsArray(idWithEntries);
     }
 
     private void sendGetAck(Socket socket) {

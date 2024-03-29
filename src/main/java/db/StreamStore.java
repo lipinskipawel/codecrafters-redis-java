@@ -1,12 +1,13 @@
 package db;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Stack;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static db.Pair.pair;
 import static java.lang.Long.parseLong;
 import static java.lang.System.currentTimeMillis;
-import static java.util.HashMap.newHashMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.Optional.empty;
 import static java.util.Optional.of;
@@ -20,7 +21,7 @@ final class StreamStore {
     }
 
     public static StreamStore streamStore() {
-        return new StreamStore(newHashMap(16));
+        return new StreamStore(new ConcurrentHashMap<>(16));
     }
 
     public Pair put(String streamKey, String value, Map<String, String> map) {
@@ -170,7 +171,7 @@ final class StreamStore {
                     return Map.of(entrySet.getKey(), result);
                 })
                 .flatMap(map -> map.entrySet().stream())
-                .collect(toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (o1, o2) -> o1, LinkedHashMap::new));
     }
 
     public boolean containsStream(String key) {

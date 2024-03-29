@@ -1,5 +1,6 @@
 package resp;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -171,19 +172,23 @@ public sealed interface Command {
         }
     }
 
-    record Xread(String commandType, String streams, Map<String, String> streamKeyWithId) implements Command {
+    record Xread(String commandType, Optional<String> blockTime, Map<String, String> streamKeyWithId)
+            implements Command {
         public Xread {
             requireNonNull(commandType);
-            requireNonNull(streams);
+            requireNonNull(blockTime);
             requireNonNull(streamKeyWithId);
         }
 
         @Override
         public List<String> elements() {
+            final var fixedValues = new ArrayList<String>();
+            fixedValues.add(commandType);
+            blockTime.ifPresent(fixedValues::add);
             final var mapValues = streamKeyWithId.entrySet()
                     .stream()
                     .flatMap(it -> Stream.of(it.getKey(), it.getValue()));
-            return concat(Stream.of(commandType, streams), mapValues).toList();
+            return concat(fixedValues.stream(), mapValues).toList();
         }
     }
 }
